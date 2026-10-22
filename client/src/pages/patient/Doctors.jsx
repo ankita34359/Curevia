@@ -30,7 +30,7 @@ export default function Doctors() {
       </div>
       <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3" aria-busy={docs.loading}>
         {docs.loading && [0, 1, 2].map((i) => <DoctorCardSkeleton key={i} />)}
-        {docs.data?.doctors.map((d, i) => <DoctorCard key={d.id} doctor={d} index={i} bookHref={`/book?doctor=${d.id}`} />)}
+        {docs.data?.doctors.map((d, i) => <DoctorCard key={d.id} doctor={d} index={i} browse />)}
       </div>
       {docs.data?.doctors.length === 0 && <EmptyState title="No doctors found" icon="🔎">Try a different name or department.</EmptyState>}
     </div>

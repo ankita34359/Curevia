@@ -16,7 +16,7 @@ function SearchBar() {
     const t = q.trim().toLowerCase()
     if (!t) return []
     const d = (deps.data?.departments || []).filter((x) => x.name.toLowerCase().includes(t)).slice(0, 3).map((x) => ({ key: `d${x.id}`, label: x.name, sub: 'Department', icon: iconFor(x.icon), to: `/doctors?department=${x.id}` }))
-    const p = (docs.data?.doctors || []).filter((x) => x.name.toLowerCase().includes(t)).slice(0, 4).map((x) => ({ key: `p${x.id}`, label: x.name, sub: x.department, icon: '👩‍⚕️', to: `/book?doctor=${x.id}` }))
+    const p = (docs.data?.doctors || []).filter((x) => x.name.toLowerCase().includes(t)).slice(0, 4).map((x) => ({ key: `p${x.id}`, label: x.name, sub: x.department, icon: '👩‍⚕️', to: `/doctors/${x.id}` }))
     return [...d, ...p]
   }, [q, deps.data, docs.data])
 
@@ -90,7 +90,7 @@ export default function Home() {
           <div className="mb-6 flex items-end justify-between"><h2 id="feat-h" className="text-2xl font-bold">Featured doctors</h2><Link to="/doctors" className="text-sm font-semibold text-brand-700 hover:underline">See all →</Link></div>
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {featured.loading && [0, 1, 2, 3].map((i) => <DoctorCardSkeleton key={i} />)}
-            {featured.data?.doctors.map((d, i) => <DoctorCard key={d.id} doctor={d} index={i} bookHref={`/book?doctor=${d.id}`} />)}
+            {featured.data?.doctors.map((d, i) => <DoctorCard key={d.id} doctor={d} index={i} browse />)}
           </div>
           {featured.data?.doctors.length === 0 && <p className="text-ink-soft">No doctors are available to book yet. Please check back soon.</p>}
         </div>
