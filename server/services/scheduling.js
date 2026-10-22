@@ -1,5 +1,7 @@
 import { addDays, istDate, istToUtcIso, minutesToTime, timeToMinutes, weekdayOfDate } from '../lib/time.js'
 
+export const BOOKING_HORIZON_DAYS = 30
+
 // Statuses that hold a slot (same list as the unique index in the database).
 export const SLOT_HOLDING = ['pending', 'confirmed', 'completed', 'no_show']
 
@@ -61,8 +63,9 @@ export function freeSlots(db, doctorId, nowIso, { horizonDays = 14, limit = 50 }
 
 // A slot is bookable when the doctor is active, offers exactly this slot, it is in the future and free.
 export function findBookableSlot(db, doctorId, startUtc, nowIso) {
-  const doc = db.prepare('SELECT active FROM doctors WHERE id = ?').get(doctorId)
-  if (!doc || !doc.active) return null
+  const doc = db.prepare('SELECT d.active, dep.active AS dep_active FROM doctors d JOIN departments dep ON dep.id = d.department_id WHERE d.id = ?').get(doctorId)
+  if (!doc || !doc.active || !doc.dep_active) return null
+  if (istDate(startUtc) > addDays(istDate(nowIso), BOOKING_HORIZON_DAYS)) return null
   const slot = daySlotsWithState(db, doctorId, istDate(startUtc), nowIso).find((s) => s.startUtc === startUtc)
   return slot && slot.state === 'free' ? slot : null
 }
@@ -79,4 +82,24 @@ export function overlapsExisting(db, doctorId, startUtc, endUtc, ignoreId = 0) {
   return !!db
     .prepare(`SELECT 1 FROM appointments WHERE doctor_id = ? AND id != ? AND start_utc < ? AND end_utc > ? AND status IN (${SLOT_HOLDING.map(() => '?').join(',')})`)
     .get(doctorId, ignoreId, endUtc, startUtc, ...SLOT_HOLDING)
+}
+
+// Free slots a patient can move to: the same doctor first, then colleagues in the same department.
+// Used by the rebooking page, and later by the agent (it may only offer slots from this list).
+export function rebookOptions(db, appt, nowIso, { limit = 12, perDoctor = 6 } = {}) {
+  const dep = db.prepare('SELECT department_id FROM doctors WHERE id = ?').get(appt.doctor_id)?.department_id
+  if (!dep) return []
+  const doctors = db
+    .prepare(
+      `SELECT d.id, u.name FROM doctors d JOIN users u ON u.id = d.user_id
+       WHERE d.department_id = ? AND d.active = 1 ORDER BY (d.id = ?) DESC, u.name`
+    )
+    .all(dep, appt.doctor_id)
+  const all = []
+  for (const d of doctors) {
+    for (const s of freeSlots(db, d.id, nowIso, { horizonDays: 14, limit: perDoctor })) {
+      all.push({ doctorId: d.id, doctorName: d.name, startUtc: s.startUtc, endUtc: s.endUtc })
+    }
+  }
+  return all.sort((a, b) => a.startUtc.localeCompare(b.startUtc)).slice(0, limit)
 }

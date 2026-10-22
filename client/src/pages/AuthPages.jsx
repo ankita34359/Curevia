@@ -54,7 +54,7 @@ export function LoginPage() {
         <Button type="submit" loading={form.busy} className="w-full">Sign in</Button>
         <p className="text-center text-sm"><Link to="/forgot-password" className="text-ink-soft hover:text-brand-700 hover:underline">Forgot your password?</Link></p>
       </form>
-      <p className="mt-6 text-center text-sm text-ink-soft">New patient? <Link to="/signup" className="font-semibold text-brand-700 hover:underline">Create an account</Link></p>
+      <p className="mt-6 text-center text-sm text-ink-soft">New patient? <Link to={params.get('next') ? `/signup?next=${encodeURIComponent(params.get('next'))}` : '/signup'} className="font-semibold text-brand-700 hover:underline">Create an account</Link></p>
     </AuthCard>
   )
 }
@@ -62,11 +62,14 @@ export function LoginPage() {
 export function SignupPage() {
   const { signup } = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const next = params.get('next')
+  const safeNext = next && next.startsWith('/') && !next.startsWith('//') ? next : null
   const [f, setF] = useState({ name: '', email: '', password: '' })
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   const form = useSubmit(async () => {
     await signup(f.name, f.email, f.password)
-    navigate('/', { replace: true })
+    navigate(safeNext || '/', { replace: true })
   })
   return (
     <AuthCard title="Create your account" subtitle="We'll email you a link to verify your address before you book.">
@@ -77,7 +80,7 @@ export function SignupPage() {
         <Field label="Password" hint="At least 8 characters">{(id) => <Input id={id} type="password" autoComplete="new-password" required minLength={8} value={f.password} onChange={set('password')} />}</Field>
         <Button type="submit" loading={form.busy} className="w-full">Create account</Button>
       </form>
-      <p className="mt-6 text-center text-sm text-ink-soft">Already registered? <Link to="/login" className="font-semibold text-brand-700 hover:underline">Sign in</Link></p>
+      <p className="mt-6 text-center text-sm text-ink-soft">Already registered? <Link to={safeNext ? `/login?next=${encodeURIComponent(safeNext)}` : '/login'} className="font-semibold text-brand-700 hover:underline">Sign in</Link></p>
     </AuthCard>
   )
 }

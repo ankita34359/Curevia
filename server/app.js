@@ -9,6 +9,8 @@ import { attachUser, requireRole, sameOriginWrites } from './auth/middleware.js'
 import { authRoutes } from './routes/auth.js'
 import { adminRoutes } from './routes/admin.js'
 import { doctorRoutes } from './routes/doctor.js'
+import { publicRoutes } from './routes/public.js'
+import { patientRoutes } from './routes/patient.js'
 import { createNotifier } from './services/notifier.js'
 
 const CLIENT_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist')
@@ -40,7 +42,8 @@ export function createApp(input) {
   const extra = ctx.roleRouters || {}
   app.use('/api/admin', requireRole('admin'), adminRoutes(ctx), extra.admin || ((_q, _s, n) => n()))
   app.use('/api/doctor', requireRole('doctor'), doctorRoutes(ctx), extra.doctor || ((_q, _s, n) => n()))
-  if (extra.patient) app.use('/api/patient', requireRole('patient'), extra.patient)
+  app.use('/api/patient', requireRole('patient'), patientRoutes(ctx), extra.patient || ((_q, _s, n) => n()))
+  app.use('/api/public', publicRoutes(ctx))
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }))
 
   // Role-restricted pages: sign-in required, then the right role.

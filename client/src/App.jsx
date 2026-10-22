@@ -2,7 +2,10 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { PatientLayout, DashboardLayout } from './components/Layouts.jsx'
 import { Forbidden, NotFound, RequireRole } from './components/Guards.jsx'
 import { ForgotPasswordPage, LoginPage, SetPasswordPage, SignupPage, VerifyEmailPage } from './pages/AuthPages.jsx'
-import { HomePlaceholder, RoleHome } from './pages/Placeholders.jsx'
+import Home from './pages/patient/Home.jsx'
+import Doctors from './pages/patient/Doctors.jsx'
+import Book from './pages/patient/Book.jsx'
+import My, { Rebook } from './pages/patient/My.jsx'
 import AdminDashboard from './pages/admin/AdminDashboard.jsx'
 import AdminDoctors from './pages/admin/AdminDoctors.jsx'
 import AdminDepartments from './pages/admin/AdminDepartments.jsx'
@@ -44,8 +47,11 @@ export default function App() {
       </Route>
 
       <Route element={<PatientLayout />}>
-        <Route index element={<HomePlaceholder />} />
-        <Route path="/my" element={<RequireRole role="patient"><RoleHome label="a patient" /></RequireRole>} />
+        <Route index element={<Home />} />
+        <Route path="/doctors" element={<Doctors />} />
+        <Route path="/book" element={<Book />} />
+        <Route path="/my" element={<RequireRole role="patient"><My /></RequireRole>} />
+        <Route path="/my/rebook/:id" element={<RequireRole role="patient"><Rebook /></RequireRole>} />
         <Route path="/forbidden" element={<Forbidden />} />
         <Route path="*" element={<NotFound />} />
       </Route>
