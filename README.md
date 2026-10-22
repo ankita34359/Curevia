@@ -68,6 +68,7 @@ How it works:
 ## The 5-minute job and the AI agent
 
 `embarko.json` schedules `/api/cron/tick` every 5 minutes. Embarko calls it with **GET**; the route also accepts **POST**. Both need `Authorization: Bearer <CRON_SECRET>` and answer **401** otherwise (always 401 if `CRON_SECRET` is not set).
+The route checks the secret and **replies `202` at once** (`{accepted, started}`); the work runs in the background, because Embarko gives up on a scheduled call after 300 s. One lock means only one tick runs at a time: a call that arrives while one is still going just replies `started: false, skipped: "already running"` (a lock older than 10 minutes is treated as dead). A tick stops starting new work after 200 s, and every viaSocket call is cut off after 20 s (AI: 30 s). While required settings are missing (holding page), the route still answers fast: `401` without the secret, otherwise `503` and nothing runs.
 A tick (safe to run twice, even at once) does three things: sends due reminders, retries failed sends, and runs the agent.
 
 **Agent.** Open cases: (a) `pending` and not yet confirmed, (b) `needs_rebooking`. For each case the viaSocket AI API (server side only, `json_schema` answer, model `AGENT_SERVICE` / `AGENT_MODEL`) is given scheduling facts and the free slots found by our code, and chooses **one** action: `remind_doctor`, `alert_admin`, `offer_slots_to_patient` (up to 3 of the given slots, plus a short friendly note), `remind_patient`, `wait` (minutes), `close_case`.

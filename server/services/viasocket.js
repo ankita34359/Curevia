@@ -26,7 +26,18 @@ export function replyProblem(body) {
 const FLOW_URL = /^https:\/\/flow\.sokt\.io\/func\/[A-Za-z0-9_-]+$/
 export const isFlowUrl = (u) => typeof u === 'string' && FLOW_URL.test(u)
 
-export function createViaSocketService({ config, client = null, fetchImpl = globalThis.fetch, timeoutMs = 45000 }) {
+// Every call to viaSocket (flow runs, the AI, listing flows) is cut off after a limit, so one slow call cannot hold up the tick.
+export const FLOW_TIMEOUT_MS = 20000
+export const AI_TIMEOUT_MS = 30000
+
+// Rejects with `message` if `promise` has not settled in `ms`. (The SDK calls take no abort signal, so the late answer is simply ignored.)
+export function withTimeout(promise, ms, message) {
+  let timer
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms) })
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer))
+}
+
+export function createViaSocketService({ config, client = null, fetchImpl = globalThis.fetch, timeoutMs = FLOW_TIMEOUT_MS, aiTimeoutMs = AI_TIMEOUT_MS }) {
   const v = config.viasocket
   const missing = [['VIASOCKET_ORG_ID', v.orgId], ['VIASOCKET_PROJECT_ID', v.projectId], ['VIASOCKET_EMBED_SECRET', v.embedSecret]].filter(([, val]) => !val).map(([k]) => k)
   const configured = missing.length === 0
@@ -44,17 +55,12 @@ export function createViaSocketService({ config, client = null, fetchImpl = glob
     // The embed token for the admin's browser (HS256 JWT: org_id, project_id, unique_identifier).
     embedToken: () => api().tokenFor(v.uniqueId),
     // The flows the admin built in the prebuilt UI: [{ id, title, status, webhook, ... }]
-    listFlows: () => api().user(v.uniqueId).listFlows(),
+    listFlows: () => withTimeout(Promise.resolve().then(() => api().user(v.uniqueId).listFlows()), timeoutMs, 'viaSocket did not answer in time'),
     // viaSocket's AI API, server side only. Returns the parsed JSON answer (responseType json_schema).
     async ai(request) {
-      const call = api().user(v.uniqueId).ai.send(request)
-      let timer
-      const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('The AI did not answer in time')), timeoutMs) })
-      try {
-        const out = await Promise.race([call, limit])
-        if (out?.finishReason === 'truncated') throw new Error('The AI answer was cut off')
-        return out?.content
-      } finally { clearTimeout(timer) }
+      const out = await withTimeout(Promise.resolve().then(() => api().user(v.uniqueId).ai.send(request)), aiTimeoutMs, 'The AI did not answer in time')
+      if (out?.finishReason === 'truncated') throw new Error('The AI answer was cut off')
+      return out?.content
     },
     // Runs a flow. Throws unless the run really worked: HTTP error, or an error inside the reply body.
     async postToFlow(url, payload) {

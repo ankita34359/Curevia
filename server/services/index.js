@@ -7,8 +7,8 @@ import { createAgent } from './agent/index.js'
 import { createTick } from './tick.js'
 
 // Builds the connected set of services. `client` and `fetchImpl` are swapped for fakes in the tests.
-export function buildServices({ config, db, clock = () => new Date(), client = null, fetchImpl = globalThis.fetch }) {
-  const viasocket = createViaSocketService({ config, client, fetchImpl })
+export function buildServices({ config, db, clock = () => new Date(), client = null, fetchImpl = globalThis.fetch, timeouts = {} }) {
+  const viasocket = createViaSocketService({ config, client, fetchImpl, ...timeouts })
   const integrations = createIntegrations({ db, viasocket, clock })
   const mailer = createMailer({ db, now: clock, transport: { sendEmail: ({ to, subject, body }) => integrations.send('email_sender', { to, subject, body }) } })
   const notifications = createNotifications({ db, config, mailer, integrations, clock })

@@ -14,7 +14,7 @@ try {
   // Stay up with a holding page instead of crashing, so a missing setting is obvious from outside and in the logs.
   console.error(`${e.message}. Serving a holding page until it is set and the app is restarted.`)
   const port = Number(process.env.PORT) || 3000
-  createHoldingApp(`Server is missing settings. ${e.message}`).listen(port, '0.0.0.0', () => console.log(`Curevia (holding page) listening on 0.0.0.0:${port}`))
+  createHoldingApp(`Server is missing settings. ${e.message}`, { cronSecret: process.env.CRON_SECRET || '' }).listen(port, '0.0.0.0', () => console.log(`Curevia (holding page) listening on 0.0.0.0:${port}`))
   await new Promise(() => {})
 }
 

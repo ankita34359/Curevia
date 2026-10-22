@@ -61,12 +61,13 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
   }
 
   // Tries again for sends that failed in the last 24 hours (not ones skipped because an integration is not set up).
-  async function retryFailed({ limit = 20 } = {}) {
+  async function retryFailed({ limit = 20, timeUp = () => false } = {}) {
     const rows = db
       .prepare("SELECT * FROM deliveries WHERE status = 'failed' AND attempts < 5 AND appointment_id IS NOT NULL AND channel IN ('email','sheet') AND updated_at >= ? ORDER BY updated_at LIMIT ?")
       .all(new Date(clock().getTime() - 24 * 3600000).toISOString(), limit)
     let retried = 0
     for (const d of rows) {
+      if (timeUp()) break
       const a = load(d.appointment_id)
       if (!a) continue
       if (d.channel === 'sheet') await sendSheet(a, d.type)

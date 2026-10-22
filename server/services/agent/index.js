@@ -199,7 +199,7 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     setCase(c.id, c.caseType, { nextCheckAt: inMinutes(res.done ? NEXT_CHECK[decision.action] || 60 : 30) })
   }
 
-  async function run() {
+  async function run({ timeUp = () => false } = {}) {
     if (running) return { skipped: 'already running' }
     running = true
     const summary = { cases: 0, decisions: 0, actions: 0, notDelivered: 0, fallbacks: 0, closed: 0 }
@@ -209,7 +209,7 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
       closeResolved(open)
       let handled = 0
       for (const c of open) {
-        if (handled >= MAX_CASES_PER_TICK) break
+        if (handled >= MAX_CASES_PER_TICK || timeUp()) break
         if (!caseRow(c.id, c.caseType)) db.prepare('INSERT INTO agent_cases (appointment_id, case_type, created_at) VALUES (?,?,?)').run(c.id, c.caseType, nowIso)
         const row = caseRow(c.id, c.caseType)
         if (row.closed_at || (row.next_check_at && row.next_check_at > nowIso)) continue

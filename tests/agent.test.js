@@ -253,7 +253,7 @@ describe('agent', () => {
 
 describe('cron route and reminders', () => {
   const CRON = { config: { cronSecret: 'cron-secret-for-tests' } }
-  it('401 without the right bearer token, for GET and POST; 200 with it', async () => {
+  it('401 without the right bearer token, for GET and POST; 202 with it', async () => {
     const { app } = await makeApp(CRON)
     const a = agentFor(app)
     for (const m of ['get', 'post']) {
@@ -261,8 +261,8 @@ describe('cron route and reminders', () => {
       await a[m]('/api/cron/tick').set('Authorization', 'Bearer wrong').expect(401)
       await a[m]('/api/cron/tick').set('Authorization', 'cron-secret-for-tests').expect(401)
       const ok = await a[m]('/api/cron/tick').set('Authorization', 'Bearer cron-secret-for-tests')
-      expect(ok.status).toBe(200)
-      expect(ok.body).toMatchObject({ ok: true })
+      expect(ok.status).toBe(202)
+      expect(ok.body).toMatchObject({ accepted: true })
     }
   })
   it('always 401 when CRON_SECRET is not set (even for "Bearer ")', async () => {
