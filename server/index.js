@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import path from 'node:path'
-import { loadConfig } from './config.js'
+import { loadConfig, isDocumentedModel } from './config.js'
 import { createHoldingApp } from './holding.js'
 import { openDb } from './db/index.js'
 import { createApp } from './app.js'
@@ -17,6 +17,10 @@ try {
   createHoldingApp(`Server is missing settings. ${e.message}`, { cronSecret: process.env.CRON_SECRET || '' }).listen(port, '0.0.0.0', () => console.log(`Curevia (holding page) listening on 0.0.0.0:${port}`))
   await new Promise(() => {})
 }
+
+if (config.agent.demoMinutesIgnored) console.warn('AGENT_DEMO_MINUTES is ignored: use a number from 1 to 120, or leave it empty to turn demo timing off.')
+if (config.agent.demoMinutes) console.warn(`DEMO TIMING IS ON (AGENT_DEMO_MINUTES=${config.agent.demoMinutes}): the agent's waits are shortened. Remove the variable and press Apply changes to turn it off.`)
+if (!isDocumentedModel(config.agent.service, config.agent.model)) console.warn(`AGENT_SERVICE / AGENT_MODEL (${config.agent.service} / ${config.agent.model}) is not in viaSocket's documented model list; the AI call may be refused and the fixed rules will decide instead.`)
 
 const dbFile = path.join(config.dataDir, 'curevia.db')
 const db = openDb(dbFile)

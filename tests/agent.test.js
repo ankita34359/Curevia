@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { makeApp, login, agentFor, addDoctor, addPatient, addAppointment, ADMIN, FLOW_URL } from './helpers.js'
-import { fixedRules, validateDecision } from '../server/services/agent/policy.js'
+import { fixedRules, validateDecision, limitsFor, nextStep, LIMITS } from '../server/services/agent/policy.js'
+import { loadConfig, parseDemoMinutes, isDocumentedModel } from '../server/config.js'
 import { rebookOptions } from '../server/services/scheduling.js'
 
 const FRI_9 = '2026-10-23T03:30:00.000Z' // Fri 23 Oct 09:00 IST
@@ -8,8 +9,8 @@ const MIN = 60000
 const iso = (ms) => new Date(ms).toISOString()
 
 // One department with two doctors, a patient with a pending appointment created `ageMin` minutes before "now".
-async function world({ ageMin = 180, startUtc = FRI_9, status = 'pending', noEmail = false, off } = {}) {
-  const ctx = await makeApp({ noEmail, off })
+async function world({ ageMin = 180, startUtc = FRI_9, status = 'pending', noEmail = false, off, config } = {}) {
+  const ctx = await makeApp({ noEmail, off, config })
   const a = addDoctor(ctx.db, { email: 'doc@test.local', name: 'Dr One' })
   const b = addDoctor(ctx.db, { email: 'doc2@test.local', name: 'Dr Two' })
   const patientId = addPatient(ctx.db)
@@ -186,12 +187,70 @@ describe('agent', () => {
     expect(w.fake.aiCalls).toHaveLength(2)
   })
 
-  it('does not look at a request younger than 30 minutes', async () => {
-    const w = await world({ ageMin: 10 })
+  it('does not ask the AI about a request younger than 30 minutes, but writes down that it is waiting, why, and until when', async () => {
+    const w = await world({ ageMin: 3 })
     w.fake.ai = say(decision({ action: 'remind_doctor' }))
-    await w.tick.run()
+    const r = await w.tick.run()
+    expect(r.agent).toMatchObject({ cases: 1, decisions: 1, waits: 1, actions: 0, notDue: 0 })
     expect(w.fake.aiCalls).toHaveLength(0)
-    expect(log(w.db, w.id)).toHaveLength(0)
+    const [row] = log(w.db, w.id)
+    expect(row).toMatchObject({ source: 'guard', action: 'wait', executed: 1 })
+    // created 9:27 AM IST -> the doctor is reminded at the 2 hour mark, 11:27 AM IST
+    expect(row.reason).toMatch(/^Waiting: remind the doctor at 11:27 AM IST\./)
+    expect(row.reason).toMatch(/only 3 minutes old/)
+    expect(row.reason).toMatch(/AI was not asked/)
+    expect(JSON.parse(row.params)).toMatchObject({ nextStep: { action: 'remind_doctor', atIst: '11:27 AM IST' }, nextCheckAtIst: '9:57 AM IST' })
+    // the case is checked again when it turns 30 minutes old
+    expect(w.db.prepare('SELECT next_check_at FROM agent_cases WHERE appointment_id = ?').get(w.id).next_check_at).toBe(iso(w.clock.now.getTime() + 27 * MIN))
+
+    // the admin page shows it: "Last decision" and "Next check" are filled in
+    const page = (await w.admin.get('/api/admin/agent').expect(200)).body
+    expect(page.openCases[0].lastDecision).toMatchObject({ action: 'wait', source: 'guard' })
+    expect(page.openCases[0].lastDecision.reason).toMatch(/^Waiting: remind the doctor at 11:27 AM IST/)
+    expect(page.openCases[0].nextCheckIst).toMatch(/9:57 AM/)
+    expect(page.decisions[0]).toMatchObject({ action: 'wait', executed: true })
+
+    // pressing "Check now" again right away does not pile up rows; it says the case is not due yet
+    const again = await w.tick.run()
+    expect(again.agent).toMatchObject({ cases: 0, notDue: 1, decisions: 0 })
+    expect(log(w.db, w.id)).toHaveLength(1)
+
+    // at 30 minutes old the AI is asked
+    w.advance(28)
+    w.fake.ai = say(decision({ action: 'wait', wait_minutes: 45, reason: 'Too early to nudge.' }))
+    await w.tick.run()
+    expect(w.fake.aiCalls).toHaveLength(1)
+    expect(log(w.db, w.id).at(-1)).toMatchObject({ source: 'ai', action: 'wait' })
+  })
+
+  it('a wait chosen by the AI is logged with its reason, the next step and the next check (the earlier of the wait and the next step)', async () => {
+    const w = await world({ ageMin: 60 }) // reminder due in 60 minutes (10:30 AM IST)
+    w.fake.ai = say(decision({ action: 'wait', wait_minutes: 45, reason: 'Too early to nudge.' }))
+    await w.tick.run()
+    let row = log(w.db, w.id).at(-1)
+    expect(row).toMatchObject({ source: 'ai', action: 'wait', executed: 1 })
+    expect(row.reason).toMatch(/^Waiting: remind the doctor at 10:30 AM IST\. Too early to nudge\.$/)
+    expect(row.outcome).toBe('waiting; next check 10:15 AM IST')
+    expect(w.db.prepare('SELECT next_check_at FROM agent_cases WHERE appointment_id = ?').get(w.id).next_check_at).toBe(iso(w.clock.now.getTime() + 45 * MIN))
+
+    // a long wait is cut short so the reminder is not missed
+    const w2 = await world({ ageMin: 60 })
+    w2.fake.ai = say(decision({ action: 'wait', wait_minutes: 300, reason: 'Later.' }))
+    await w2.tick.run()
+    expect(w2.db.prepare('SELECT next_check_at FROM agent_cases WHERE appointment_id = ?').get(w2.id).next_check_at).toBe(iso(w2.clock.now.getTime() + 60 * MIN))
+    row = log(w2.db, w2.id).at(-1)
+    expect(row.outcome).toBe('waiting; next check 10:30 AM IST')
+  })
+
+  it('when the AI is down and nothing is due, the fixed-rule wait is logged too, with the reason the AI was not used', async () => {
+    const w = await world({ ageMin: 40 })
+    w.fake.ai = null
+    const r = await w.tick.run()
+    expect(r.agent).toMatchObject({ waits: 1, fallbacks: 1 })
+    const row = log(w.db, w.id)[0]
+    expect(row).toMatchObject({ source: 'fallback', action: 'wait', executed: 1 })
+    expect(row.reason).toMatch(/^Waiting: remind the doctor at 10:50 AM IST\. Fixed rule: nothing is due yet/)
+    expect(row.ai_error).toBeTruthy()
   })
 
   it('falls back to fixed rules when the AI fails, and logs why', async () => {
@@ -331,5 +390,127 @@ describe('cron route and reminders', () => {
     expect(ctx.db.prepare("SELECT COUNT(*) n FROM deliveries WHERE status = 'failed'").get().n).toBe(0)
     expect(ctx.emails.sent.filter((m) => m.to === 'pat@test.local')).toHaveLength(1)
     expect(ctx.emails.sent.filter((m) => m.to === 'doc@test.local')).toHaveLength(1)
+  })
+})
+
+
+describe('next step and demo timing', () => {
+  const facts = (over = {}) => ({
+    caseType: 'pending', minutesSinceCaseStart: 10, minutesUntilAppointment: 2000,
+    counts: { doctorReminders: 0, patientReminders: 0, adminAlerts: 0, offers: 0 },
+    minutesSinceLast: { remind_doctor: null, remind_patient: null, offer_slots_to_patient: null },
+    options: [], ...over
+  })
+  const DEMO_ENV = { SESSION_SECRET: 'test-session-secret-123456', ADMIN_EMAIL: 'a@b.test', ADMIN_PASSWORD: 'password-123' }
+
+  it('nextStep: the earliest of reminder, second reminder, admin alert and offer', () => {
+    expect(nextStep(facts())).toMatchObject({ action: 'remind_doctor', inMin: 110 })
+    expect(nextStep(facts({ minutesSinceCaseStart: 130, counts: { doctorReminders: 1, patientReminders: 0, adminAlerts: 0, offers: 0 }, minutesSinceLast: { remind_doctor: 10, remind_patient: null, offer_slots_to_patient: null } }))).toMatchObject({ action: 'remind_doctor_again', inMin: 110 })
+    expect(nextStep(facts({ minutesSinceCaseStart: 250, counts: { doctorReminders: 2, patientReminders: 0, adminAlerts: 0, offers: 0 } }))).toMatchObject({ action: 'alert_admin', inMin: 110 })
+    expect(nextStep(facts({ minutesSinceCaseStart: 400, counts: { doctorReminders: 2, patientReminders: 0, adminAlerts: 1, offers: 1 } }))).toBeNull()
+    expect(nextStep(facts({ caseType: 'needs_rebooking', minutesSinceCaseStart: 5 }))).toMatchObject({ action: 'offer_slots_to_patient', inMin: 0 })
+  })
+
+  it('AGENT_DEMO_MINUTES: off unless it is a number from 1 to 120', () => {
+    for (const bad of [undefined, '', '  ', 'abc', '0', '-3', '121', 'NaN']) expect(parseDemoMinutes(bad)).toBeNull()
+    expect(parseDemoMinutes('2')).toBe(2)
+    expect(parseDemoMinutes(' 5 ')).toBe(5)
+    expect(loadConfig(DEMO_ENV).agent).toMatchObject({ demoMinutes: null, demoMinutesIgnored: false })
+    expect(loadConfig({ ...DEMO_ENV, AGENT_DEMO_MINUTES: '2' }).agent).toMatchObject({ demoMinutes: 2, demoMinutesIgnored: false })
+    expect(loadConfig({ ...DEMO_ENV, AGENT_DEMO_MINUTES: 'two' }).agent).toMatchObject({ demoMinutes: null, demoMinutesIgnored: true })
+  })
+
+  it('limitsFor: the same object when off; with 2, hours become minutes (2 -> 2 min, 6 -> 6 min, 4 -> 4 min)', () => {
+    expect(limitsFor(null)).toBe(LIMITS)
+    expect(limitsFor(undefined)).toBe(LIMITS)
+    expect(limitsFor('junk')).toBe(LIMITS)
+    const d = limitsFor(2)
+    expect(d).toMatchObject({ demo: true, remindDoctorAfterMin: 2, alertAdminAfterMin: 6, minCaseAgeMin: 0.5, offerWhenWithinMin: 12 * 60 })
+    expect(d.minGapMinutes).toEqual({ remind_doctor: 1, remind_patient: 1, offer_slots_to_patient: 2 })
+    expect(limitsFor(4)).toMatchObject({ remindDoctorAfterMin: 4, alertAdminAfterMin: 12 })
+    expect(LIMITS.remindDoctorAfterMin).toBe(120) // the real limits are never modified
+  })
+
+  it('in demo timing the rules follow the short times', () => {
+    const d = limitsFor(2)
+    expect(fixedRules(facts({ minutesSinceCaseStart: 1.5 }), d).action).toBe('wait')
+    expect(fixedRules(facts({ minutesSinceCaseStart: 2.5 }), d)).toMatchObject({ action: 'remind_doctor' })
+    expect(fixedRules(facts({ minutesSinceCaseStart: 2.5 }), d).reason).toMatch(/after 2 minutes/)
+    expect(fixedRules(facts({ minutesSinceCaseStart: 6.5 }), d).action).toBe('alert_admin')
+    expect(fixedRules(facts({ minutesSinceCaseStart: 2.5 })).action).toBe('wait') // normal timing: still 2 minutes in
+    expect(validateDecision({ action: 'wait', waitMinutes: 99999 }, facts(), d).decision.waitMinutes).toBe(12)
+    expect(validateDecision({ action: 'wait', waitMinutes: 0 }, facts(), d).decision.waitMinutes).toBe(1)
+    expect(validateDecision({ action: 'remind_doctor' }, facts({ minutesSinceLast: { remind_doctor: 0.5, remind_patient: null, offer_slots_to_patient: null } }), d).why).toMatch(/less than 1 minute ago/)
+    expect(validateDecision({ action: 'remind_doctor' }, facts({ minutesSinceLast: { remind_doctor: 1.5, remind_patient: null, offer_slots_to_patient: null } }), d).ok).toBe(true)
+  })
+
+  it('the whole flow runs in minutes: wait, remind the doctor, remind again, alert the admin (once)', async () => {
+    const w = await world({ ageMin: 0.25, config: { agent: { service: 'openai', model: 'gpt-5-mini', demoMinutes: 2 } } })
+    w.fake.ai = null // the fixed rules decide, so the steps are predictable
+    const rows = () => log(w.db, w.id)
+    const doctorMails = () => mailsTo(w.emails, 'doc@test.local').filter((m) => /Reminder: appointment request/.test(m.subject))
+
+    await w.tick.run() // 15 seconds old: too new
+    expect(rows()[0]).toMatchObject({ source: 'guard', action: 'wait' })
+    expect(rows()[0].reason).toMatch(/only 18 seconds old/)
+    expect(rows()[0].reason).toMatch(/^Waiting: remind the doctor at 9:32 AM IST/) // 9:30 now + 2 min - 18 s = 9:31:42, shown rounded up
+
+    w.advance(1) // 1.25 min: nothing due yet, the wait is logged
+    await w.tick.run()
+    expect(rows().at(-1)).toMatchObject({ source: 'fallback', action: 'wait' })
+    expect(doctorMails()).toHaveLength(0)
+
+    w.advance(1) // 2.25 min: the doctor is reminded
+    await w.tick.run()
+    expect(rows().at(-1)).toMatchObject({ action: 'remind_doctor', executed: 1, outcome: 'sent' })
+    expect(doctorMails()).toHaveLength(1)
+
+    w.advance(2) // 4.25 min: the second reminder
+    await w.tick.run()
+    expect(doctorMails()).toHaveLength(2)
+
+    w.advance(2.5) // 6.75 min: the admin is alerted, once
+    await w.tick.run()
+    expect(rows().at(-1)).toMatchObject({ action: 'alert_admin', executed: 1 })
+    const alerts = w.fake.postsTo('slack_alert')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0].text).toMatch(/not confirmed it after 7 min\./)
+    expect(alerts[0].text).not.toMatch(/after 0 h/)
+    w.advance(2)
+    await w.tick.run()
+    expect(w.fake.postsTo('slack_alert')).toHaveLength(1)
+    expect(doctorMails()).toHaveLength(2) // never more than 2 reminders, demo or not
+  })
+
+  it('the AI is told the demo timings; in normal timing it is told hours', async () => {
+    const demo = await world({ ageMin: 3, config: { agent: { service: 'openai', model: 'gpt-5-mini', demoMinutes: 2 } } })
+    demo.fake.ai = say(decision({ action: 'wait', wait_minutes: 1 }))
+    await demo.tick.run()
+    expect(demo.fake.aiCalls[0].prompt).toMatch(/unconfirmed for 2 minutes/)
+    expect(demo.fake.aiCalls[0].prompt).toMatch(/open for 6 minutes/)
+    expect(demo.fake.aiCalls[0].prompt).toMatch(/live demo/)
+    const real = await world({ ageMin: 130 })
+    real.fake.ai = say(decision({ action: 'wait', wait_minutes: 30 }))
+    await real.tick.run()
+    expect(real.fake.aiCalls[0].prompt).toMatch(/unconfirmed for 2 hours/)
+    expect(real.fake.aiCalls[0].prompt).not.toMatch(/live demo/)
+  })
+
+  it('the Agent activity API says whether demo timing is on (the page shows a badge)', async () => {
+    const off = await world()
+    expect((await off.admin.get('/api/admin/agent').expect(200)).body.demoMinutes).toBeNull()
+    const on = await world({ config: { agent: { service: 'openai', model: 'gpt-5-mini', demoMinutes: 2 } } })
+    expect((await on.admin.get('/api/admin/agent').expect(200)).body.demoMinutes).toBe(2)
+  })
+
+  it('the default model is on the viaSocket AI API documented list', () => {
+    const { service, model } = loadConfig(DEMO_ENV).agent
+    expect(isDocumentedModel(service, model)).toBe(true)
+    expect(isDocumentedModel('openai', 'gpt-5-mini')).toBe(true)
+    expect(isDocumentedModel('anthropic', 'claude-sonnet-4-6')).toBe(true)
+    expect(isDocumentedModel('gemini', 'gemini-2.5-flash')).toBe(true)
+    expect(isDocumentedModel('openai', 'gpt-9')).toBe(false)
+    expect(isDocumentedModel('anthropic', 'gpt-5-mini')).toBe(false) // a model must match its service
+    expect(isDocumentedModel('mistral', 'large')).toBe(false)
   })
 })

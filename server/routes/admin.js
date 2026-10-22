@@ -236,7 +236,7 @@ export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, in
       id: d.id, appointmentId: d.appointment_id, caseType: d.case_type, source: d.source, action: d.action, reason: d.reason, executed: !!d.executed, outcome: d.outcome, aiError: d.ai_error,
       params: d.params ? JSON.parse(d.params) : null, atIst: fmt(d.created_at)
     }))
-    res.json({ openCases: view, notLookedAtYet: waiting, decisions, aiConfigured: viasocket.configured })
+    res.json({ openCases: view, notLookedAtYet: waiting, decisions, aiConfigured: viasocket.configured, demoMinutes: config.agent.demoMinutes || null })
   })
 
   // Runs the same job the 5-minute schedule runs.

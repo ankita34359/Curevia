@@ -83,9 +83,14 @@ Our code checks every action before doing it:
 - a case ends by itself when the appointment is confirmed, cancelled, moved or past.
 
 Defaults it follows: remind the doctor after 2 h unconfirmed (again at 4 h), alert the admin after 6 h (a code safety rule alerts even if the AI keeps waiting), and if the appointment is under 12 h away and still pending, offer other slots in the same department.
+**Waiting is written down too.** Every time a case is looked at and nothing is due, a `wait` decision is logged with its reason and the next step ("Waiting: remind the doctor at 8:30 PM IST. ..."), and **Last decision** and **Next check** on the Agent activity page are updated. A request younger than 30 minutes is not sent to the AI at all; it gets a logged wait (source "Safety rule") until it is 30 minutes old. A case is not looked at again before its **Next check** (Check now says "not due for another look yet").
 If the AI call fails, returns something invalid, or its suggestion is refused, **fixed rules** with the same defaults decide, and the log says why. Every decision (including refused ones) is saved in `agent_log` and shown on **Agent activity**.
 
 ---
+
+**Models.** viaSocket's AI API documents these `service` / `model` pairs (https://flow.viasocket.com/documentation/ai.md; both are always sent together): `openai`: gpt-5.6-luna (its default), gpt-5.5, gpt-5.4, gpt-5.2, gpt-5.1, gpt-5, **gpt-5-mini** (ours), gpt-5-nano, gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-4o-mini; `anthropic`: claude-opus-4-7, claude-sonnet-4-6; `gemini`: gemini-2.5-pro, gemini-2.5-flash. The app logs a warning at start if `AGENT_SERVICE` / `AGENT_MODEL` is not in that list.
+
+**Demo timing.** With `AGENT_DEMO_MINUTES` set, everything the agent *waits* for shrinks (all in minutes), including the times the AI is told. Real-clock facts do not: how far away the appointment is (the "under 12 hours away, offer other slots" rule) and the 7 days before a rebooking is handed over. The caps still apply (2 doctor reminders, 2 patient reminders, 1 admin alert), and real emails and Slack messages are really sent, so use fake accounts and **turn it off after the demo**. The schedule still runs every 5 minutes; press **Check now** to step through faster.
 
 ## Run it locally
 
@@ -119,7 +124,8 @@ Tests use a **fake viaSocket and a fake AI** and cover: double booking blocked (
 | `VIASOCKET_PROJECT_ID` | for viaSocket | `projKcrymrh3` |
 | `VIASOCKET_UNIQUE_ID` | optional | Default `curevia-hospital`. The one viaSocket user that owns all flows and AI threads. |
 | `VIASOCKET_EMBED_SECRET` | for viaSocket | Signing secret (viaSocket -> Integrations -> the embed -> Install Code). Server only. |
-| `AGENT_SERVICE`, `AGENT_MODEL` | optional | AI for the agent. Default `openai` / `gpt-5-mini`. |
+| `AGENT_SERVICE`, `AGENT_MODEL` | optional | AI for the agent. Default `openai` / `gpt-5-mini`. Must be a pair from viaSocket's documented list (see below). |
+| `AGENT_DEMO_MINUTES` | optional, **off** by default | Demo timing for showing the agent live. A number from 1 to 120: the 2-hour mark becomes that many minutes (`2` = remind the doctor after 2 min, second reminder at 4, alert the admin at 6, 1 min between reminders, a request is judged after 30 s). Empty or missing = normal timing. Shows a "Demo timing on" badge on Agent activity. |
 | `TRUST_PROXY` | optional | Proxies in front of the app, default `1`. |
 | `CRON_SECRET` | set by Embarko | Protects `/api/cron/tick`. |
 | `PORT`, `DATA_DIR` | set by Embarko | Port to listen on (0.0.0.0) and the only persistent folder. |

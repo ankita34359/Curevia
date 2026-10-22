@@ -1,16 +1,15 @@
 import { z } from 'zod'
-import { formatIst } from '../../lib/time.js'
+import { formatIst, formatIstTime, istDate } from '../../lib/time.js'
 import { APPT_SELECT } from '../appointments.js'
 import { deliver } from '../deliveries.js'
 import { findBookableSlot, rebookOptions } from '../scheduling.js'
 import * as t from '../emailTemplates.js'
-import { LIMITS, fixedRules, validateDecision } from './policy.js'
-import { DECISION_SCHEMA, SYSTEM_PROMPT } from './prompt.js'
+import { fixedRules, limitsFor, nextStep, span, validateDecision } from './policy.js'
+import { DECISION_SCHEMA, buildSystemPrompt } from './prompt.js'
 
 const MAX_CASES_PER_TICK = 8
 const GIVE_UP_AFTER_TRIES = 3
 const STALE_REBOOKING_MIN = 7 * 24 * 60
-const minutes = (ms) => Math.floor(ms / 60000)
 
 const aiAnswer = z.object({
   action: z.string(),
@@ -25,6 +24,10 @@ const aiAnswer = z.object({
 export function createAgent({ db, config, viasocket, mailer, notifications, clock = () => new Date(), model = {} }) {
   const aiModel = { service: model.service || 'openai', model: model.model || 'gpt-5-mini' }
   let running = false
+  // Normal timing, or the short demo timing when AGENT_DEMO_MINUTES is set (see policy.limitsFor).
+  const limits = limitsFor(model.demoMinutes ?? config.agent?.demoMinutes)
+  const systemPrompt = buildSystemPrompt(limits)
+  const minutes = (ms) => (limits.demo ? Math.round(ms / 6000) / 10 : Math.floor(ms / 60000))
 
   const logRow = (c, { source, action, reason, params = null, executed = 0, outcome, aiError = null }) =>
     db.prepare('INSERT INTO agent_log (appointment_id, case_type, source, action, reason, params, executed, outcome, ai_error, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
@@ -96,7 +99,7 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     const raw = await viasocket.ai({
       threadId: `agent-case-${f.id}`,
       message: aiMessage(f),
-      prompt: SYSTEM_PROMPT,
+      prompt: systemPrompt,
       responseType: 'json_schema',
       jsonSchema: DECISION_SCHEMA,
       service: aiModel.service,
@@ -113,15 +116,15 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     let aiError = null
     try {
       const raw = await askAi(f)
-      const v = validateDecision(raw, f)
+      const v = validateDecision(raw, f, limits)
       if (v.ok) return { source: 'ai', decision: v.decision, aiError: null }
       logRow(c, { source: 'ai', action: raw.action, reason: raw.reason, params: { slotOptionIds: raw.slotOptionIds }, executed: 0, outcome: `Refused by the rules: ${v.why}` })
       aiError = `The AI's suggestion was refused: ${v.why}`
     } catch (e) {
       aiError = e.message
     }
-    const fb = validateDecision(toRaw(fixedRules(f)), f)
-    return { source: 'fallback', decision: fb.ok ? fb.decision : { action: 'wait', reason: 'Fixed rule: nothing to do', waitMinutes: 30, options: [], note: '' }, aiError }
+    const fb = validateDecision(toRaw(fixedRules(f, limits)), f, limits)
+    return { source: 'fallback', decision: fb.ok ? fb.decision : { action: 'wait', reason: 'Fixed rule: nothing to do', waitMinutes: limits.defaultWaitMin, options: [], note: '' }, aiError }
   }
 
   const link = (id) => `${config.appUrl}/my/rebook/${id}`
@@ -140,8 +143,8 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
         return to(await mailer.send({ type: 'agent_remind_patient', dedupeKey: `email:agent_remind_patient:${f.id}:${f.counts.patientReminders + 1}`, appointmentId: f.id, to: a.email, subject: m.subject, html: m.html }))
       }
       case 'alert_admin': {
-        const hours = Math.floor(f.minutesSinceCaseStart / 60)
-        const text = `Curevia: appointment #${f.id} with ${a.doctor_name} (${a.department}) on ${a.startIst} IST needs a person. ${f.caseType === 'pending' ? `The doctor has not confirmed it after ${hours} h.` : `The patient has no new slot after ${hours} h.`} Details: ${config.appUrl}/admin/agent`
+        const open = f.minutesSinceCaseStart >= 60 ? `${Math.floor(f.minutesSinceCaseStart / 60)} h` : `${Math.round(f.minutesSinceCaseStart)} min`
+        const text = `Curevia: appointment #${f.id} with ${a.doctor_name} (${a.department}) on ${a.startIst} IST needs a person. ${f.caseType === 'pending' ? `The doctor has not confirmed it after ${open}.` : `The patient has no new slot after ${open}.`} Details: ${config.appUrl}/admin/agent`
         return to(await notifications.slackAlert({ dedupeKey: `slack:agent_alert_admin:${f.id}`, text, appointmentId: f.id }))
       }
       case 'offer_slots_to_patient': {
@@ -156,12 +159,49 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     return { done: true, outcome: 'ok' }
   }
 
-  const NEXT_CHECK = { remind_doctor: 60, remind_patient: 60, offer_slots_to_patient: 120, alert_admin: 120 }
+  // The time a waiting case will be looked at again, and what the rules will do next ("remind the doctor at 8:30 PM IST").
+  // The next check is the chosen wait, or the moment the next step falls due if that comes first.
+  function planWait(f, waitMinutes) {
+    const nowMs = new Date(f.nowIso).getTime()
+    const step = nextStep(f, limits)
+    const checkMs = nowMs + waitMinutes * 60000
+    const stepMs = step ? nowMs + step.inMin * 60000 : null
+    const nextCheckMs = stepMs && stepMs > nowMs ? Math.min(checkMs, stepMs) : checkMs
+    // Shown to the minute, rounded up, so the page never names a moment earlier than the real one.
+    const clockText = (ms) => {
+      const iso = new Date(Math.ceil(ms / 60000) * 60000).toISOString()
+      return `${istDate(iso) === istDate(f.nowIso) ? '' : `${formatIst(iso).split(',')[0]}, `}${formatIstTime(iso)} IST`
+    }
+    return {
+      nextCheckAt: new Date(nextCheckMs).toISOString(),
+      nextCheckText: clockText(nextCheckMs),
+      headline: step ? `Waiting: ${step.label} at ${clockText(stepMs)}.` : 'Waiting: nothing else is scheduled for this case.',
+      step: step ? { action: step.action, label: step.label, atIst: clockText(stepMs) } : null
+    }
+  }
+
+  // Records a wait: the reason, the next step and when the case is checked again, so "Last decision" and "Next check" are never blank.
+  function recordWait(c, f, { source, reason, waitMinutes, aiError = null }) {
+    const plan = planWait(f, waitMinutes)
+    setCase(c.id, c.caseType, { nextCheckAt: plan.nextCheckAt })
+    logRow(c, {
+      source, action: 'wait', reason: `${plan.headline} ${reason}`, executed: 1, aiError,
+      params: { waitMinutes, nextCheckAtIst: plan.nextCheckText, nextStep: plan.step },
+      outcome: `waiting; next check ${plan.nextCheckText}`
+    })
+  }
 
   async function handleCase(c, summary) {
     const nowIso = clock().toISOString()
     let f = buildFacts(c, nowIso)
-    if (c.caseType === 'pending' && f.minutesSinceCaseStart < 30) return
+    if (c.caseType === 'pending' && f.minutesSinceCaseStart < limits.minCaseAgeMin) {
+      // Too new to judge: the AI is not asked. Still written down, so the admin sees why nothing happened.
+      const wait = Math.max(limits.demo ? 0.1 : 1, Math.round((limits.minCaseAgeMin - f.minutesSinceCaseStart) * 100) / 100)
+      recordWait(c, f, { source: 'guard', waitMinutes: wait, reason: `This request is only ${span(f.minutesSinceCaseStart)} old; the agent starts judging a request after ${span(limits.minCaseAgeMin)}, so the AI was not asked.` })
+      summary.decisions++
+      summary.waits++
+      return
+    }
     if (c.caseType === 'needs_rebooking' && f.minutesSinceCaseStart > STALE_REBOOKING_MIN && f.counts.adminAlerts > 0) {
       setCase(c.id, c.caseType, { closedAt: nowIso, closedReason: 'stale' })
       logRow(c, { source: 'guard', action: 'close_case', reason: 'No answer from the patient after 7 days and the admin has been alerted. Handed over to a person.', executed: 1, outcome: 'closed' })
@@ -170,16 +210,16 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     }
     let { source, decision, aiError } = await decide(f, c)
     // Safety net: the AI may not leave an old case with nobody told.
-    if (decision.action === 'wait' && f.minutesSinceCaseStart >= LIMITS.alertAdminAfterMin && f.counts.adminAlerts < 1) {
-      decision = { action: 'alert_admin', reason: `Safety rule: the case has been open for ${Math.floor(f.minutesSinceCaseStart / 60)} hours and nobody has been alerted yet.`, waitMinutes: null, options: [], note: '' }
+    if (decision.action === 'wait' && f.minutesSinceCaseStart >= limits.alertAdminAfterMin && f.counts.adminAlerts < 1) {
+      decision = { action: 'alert_admin', reason: `Safety rule: the case has been open for ${span(f.minutesSinceCaseStart >= 60 ? Math.floor(f.minutesSinceCaseStart / 60) * 60 : f.minutesSinceCaseStart)} and nobody has been alerted yet.`, waitMinutes: null, options: [], note: '' }
       source = 'guard'
     }
     summary.decisions++
     if (source === 'fallback') summary.fallbacks++
 
     if (decision.action === 'wait') {
-      setCase(c.id, c.caseType, { nextCheckAt: inMinutes(decision.waitMinutes) })
-      logRow(c, { source, action: 'wait', reason: decision.reason, params: { waitMinutes: decision.waitMinutes }, executed: 1, outcome: `waiting ${decision.waitMinutes} minutes`, aiError })
+      recordWait(c, f, { source, reason: decision.reason, waitMinutes: decision.waitMinutes, aiError })
+      summary.waits++
       return
     }
     if (decision.action === 'close_case') {
@@ -196,13 +236,13 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     logRow(c, { source, action: decision.action, reason: decision.reason, params: res.params || (decision.options.length ? { slots: decision.options.map((o) => `${o.startIst} ${o.doctorName}`) } : null), executed, outcome: gaveUp ? `gave up after ${GIVE_UP_AFTER_TRIES} tries (${res.outcome})` : res.outcome, aiError })
     if (res.done) summary.actions++
     else summary.notDelivered++
-    setCase(c.id, c.caseType, { nextCheckAt: inMinutes(res.done ? NEXT_CHECK[decision.action] || 60 : 30) })
+    setCase(c.id, c.caseType, { nextCheckAt: inMinutes(res.done ? limits.nextCheckAfterMin[decision.action] || 60 : limits.defaultWaitMin) })
   }
 
   async function run({ timeUp = () => false } = {}) {
     if (running) return { skipped: 'already running' }
     running = true
-    const summary = { cases: 0, decisions: 0, actions: 0, notDelivered: 0, fallbacks: 0, closed: 0 }
+    const summary = { cases: 0, decisions: 0, actions: 0, waits: 0, notDue: 0, notDelivered: 0, fallbacks: 0, closed: 0 }
     try {
       const nowIso = clock().toISOString()
       const open = openCases(nowIso)
@@ -212,7 +252,8 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
         if (handled >= MAX_CASES_PER_TICK || timeUp()) break
         if (!caseRow(c.id, c.caseType)) db.prepare('INSERT INTO agent_cases (appointment_id, case_type, created_at) VALUES (?,?,?)').run(c.id, c.caseType, nowIso)
         const row = caseRow(c.id, c.caseType)
-        if (row.closed_at || (row.next_check_at && row.next_check_at > nowIso)) continue
+        if (row.closed_at) continue
+        if (row.next_check_at && row.next_check_at > nowIso) { summary.notDue++; continue } // already decided; not due for another look yet
         summary.cases++
         handled++
         try { await handleCase(c, summary) } catch (e) { console.error(`Agent failed on a case: ${e.message}`) }
@@ -221,5 +262,5 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     return summary
   }
 
-  return { run }
+  return { run, limits }
 }

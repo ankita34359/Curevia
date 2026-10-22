@@ -26,8 +26,14 @@ export default function AdminAgent() {
       {error && <Alert tone="error" className="mb-4">{error}</Alert>}
       {result && (
         <Alert tone="success" className="mb-4">
-          {result.skipped ? 'A check was already running.' : `Checked ${result.agent.cases} case${result.agent.cases === 1 ? '' : 's'}: ${result.agent.actions} action${result.agent.actions === 1 ? '' : 's'} taken${result.agent.notDelivered ? `, ${result.agent.notDelivered} could not be delivered (see below)` : ''}${result.agent.fallbacks ? `, ${result.agent.fallbacks} decided by fixed rules because the AI was unavailable` : ''}. Reminders sent: ${result.reminders.sent}.`}
+          {result.skipped ? 'A check was already running.' : `Checked ${result.agent.cases} case${result.agent.cases === 1 ? '' : 's'}: ${result.agent.actions} action${result.agent.actions === 1 ? '' : 's'} taken${result.agent.waits ? `, ${result.agent.waits} set to wait (the reason and next step are listed below)` : ''}${result.agent.notDue ? `, ${result.agent.notDue} not due for another look yet` : ''}${result.agent.notDelivered ? `, ${result.agent.notDelivered} could not be delivered (see below)` : ''}${result.agent.fallbacks ? `, ${result.agent.fallbacks} decided by fixed rules because the AI was unavailable` : ''}. Reminders sent: ${result.reminders.sent}.`}
         </Alert>
+      )}
+      {d?.demoMinutes && (
+        <p className="mb-4 inline-flex flex-wrap items-center gap-2 rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-900" data-testid="demo-badge">
+          <span aria-hidden="true">⏱️</span> Demo timing on
+          <span className="font-normal">· doctor reminder after {d.demoMinutes} min, admin alert after {d.demoMinutes * 3} min (instead of 2 and 6 hours)</span>
+        </p>
       )}
       {d && !d.aiConfigured && <Alert tone="warn" className="mb-4">viaSocket is not connected yet, so the agent uses its fixed rules, and emails and alerts are not sent.</Alert>}
 
@@ -72,6 +78,7 @@ export default function AdminAgent() {
                 <p className="mt-1 text-sm text-ink-soft"><strong>Why:</strong> {x.reason}</p>
                 <p className="mt-1 text-xs text-ink-muted"><strong>Result:</strong> {x.outcome}</p>
                 {x.params?.slots && <p className="mt-1 text-xs text-ink-muted">Slots offered: {x.params.slots.join('; ')}</p>}
+                {x.action === 'wait' && x.params?.nextCheckAtIst && <p className="mt-1 text-xs text-ink-muted">Next check: {x.params.nextCheckAtIst}{x.params.nextStep ? ` · next step: ${x.params.nextStep.label} at ${x.params.nextStep.atIst}` : ''}</p>}
                 {x.aiError && <p className="mt-1 text-xs text-orange-800">The AI was not used: {x.aiError}</p>}
               </li>
             )
