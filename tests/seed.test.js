@@ -26,3 +26,18 @@ describe('doctor profile data', () => {
     await agentFor(app).get('/api/public/doctors/999/next-slots').expect(404)
   })
 })
+
+import { createHoldingApp } from '../server/holding.js'
+import supertest from 'supertest'
+describe('holding page when settings are missing', () => {
+  it('answers /healthz, and 503 with only names elsewhere', async () => {
+    const app = createHoldingApp('Server is missing settings. Missing required environment variables: SESSION_SECRET, ADMIN_PASSWORD')
+    expect((await supertest(app).get('/healthz')).body).toEqual({ ok: true, ready: false })
+    const api = await supertest(app).get('/api/public/doctors')
+    expect(api.status).toBe(503)
+    expect(api.body.error).toMatch(/SESSION_SECRET, ADMIN_PASSWORD/)
+    const page = await supertest(app).get('/admin')
+    expect(page.status).toBe(503)
+    expect(page.text).not.toMatch(/SESSION_SECRET/)
+  })
+})
