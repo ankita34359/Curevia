@@ -153,5 +153,20 @@ INSERT INTO auth_tokens_new SELECT * FROM auth_tokens;
 DROP TABLE auth_tokens;
 ALTER TABLE auth_tokens_new RENAME TO auth_tokens;
 `
+  },
+  {
+    id: 3,
+    name: 'integrations',
+    sql: `
+-- One row per viaSocket embed slot. webhook_url is a credential: it stays on the server.
+CREATE TABLE integrations (
+  slot TEXT PRIMARY KEY CHECK (slot IN ('appointments_sheet','email_sender','slack_alert')),
+  flow_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'none' CHECK (status IN ('none','drafted','active','paused','deleted')),
+  webhook_url TEXT,
+  flow_title TEXT,
+  updated_at TEXT NOT NULL
+);
+`
   }
 ]

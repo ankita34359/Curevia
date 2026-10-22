@@ -1,13 +1,17 @@
+import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import { z } from 'zod'
 import { HttpError, parse, wrap } from '../lib/http.js'
 import { toCsv } from '../lib/csv.js'
+import { deliver } from '../services/deliveries.js'
 import { addDays, formatIst, formatIstDate, formatIstTime, isDateStr, istDate, istToUtcIso } from '../lib/time.js'
 import { APPT_SELECT } from '../services/appointments.js'
 import { activateDoctor, createDoctor, createDoctorSchema, DOCTOR_SELECT, deactivateDoctor, getDoctor, shapeDoctor, updateDoctorSchema, updateDoctor } from '../services/doctors.js'
 import { issueToken, linkFor } from '../services/authTokens.js'
 import * as templates from '../services/emailTemplates.js'
 import { shapeAppointment } from '../services/shape.js'
+import { SLOTS, SLOT_NAMES } from '../integrations/slots.js'
+import { formatIst as fmt } from '../lib/time.js'
 
 const deptBody = z.object({
   name: z.string().trim().min(2, 'Enter a department name').max(80),
@@ -34,7 +38,7 @@ function queryAppointments(db, q, limit = 1000) {
   return db.prepare(`${APPT_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.start_utc DESC LIMIT ${limit}`).all(...args)
 }
 
-export function adminRoutes({ config, db, mailer, notifier, clock }) {
+export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, integrations }) {
   const r = Router()
 
   // ---- dashboard ----
@@ -199,6 +203,50 @@ export function adminRoutes({ config, db, mailer, notifier, clock }) {
       res.json({ doctor: shapeDoctor(getDoctor(db, Number(req.params.id))) })
     })
   )
+
+  // ---- viaSocket integrations ----
+  r.get('/integrations', wrap(async (req, res) => {
+    if (viasocket.configured && req.query.sync === '1') {
+      try { await integrations.sync() } catch (e) { console.error(`viaSocket sync failed: ${e.message}`) }
+    }
+    res.json({ configured: viasocket.configured, missing: viasocket.missing, slots: integrations.states() })
+  }))
+
+  // The embed token for the browser (HS256: org_id, project_id, unique_identifier), signed here with the secret.
+  r.get('/integrations/embed', wrap(async (_req, res) => {
+    if (!viasocket.configured) throw new HttpError(503, `viaSocket is not set up yet. Missing: ${viasocket.missing.join(', ')}`, { missing: viasocket.missing })
+    try {
+      res.json({ token: await viasocket.embedToken() })
+    } catch (e) {
+      throw new HttpError(502, 'Could not create the viaSocket embed token')
+    }
+  }))
+
+  r.post('/integrations/:slot/event', wrap(async (req, res) => {
+    const body = parse(z.object({ flowId: z.string().max(100), action: z.enum(['initiated', 'published', 'updated', 'paused', 'deleted']) }), req.body)
+    res.json({ slot: await integrations.recordEvent(req.params.slot, body) })
+  }))
+
+  r.post('/integrations/:slot/disconnect', wrap(async (req, res) => {
+    integrations.disconnect(req.params.slot)
+    res.json({ slot: integrations.state(req.params.slot) })
+  }))
+
+  // A harmless test message through one slot, so the admin can see it work end to end.
+  r.post('/integrations/:slot/test', wrap(async (req, res) => {
+    const slot = req.params.slot
+    if (!SLOT_NAMES.includes(slot)) throw new HttpError(404, 'Unknown integration slot')
+    const at = fmt(clock().toISOString())
+    const key = `test:${slot}:${randomUUID()}`
+    const def = SLOTS[slot]
+    const payloads = {
+      appointments_sheet: { ...def.sample, appointment_id: 'TEST', patient_name: 'Test Patient (fake)', phone: '', email: '', event: 'test', status: 'test', at },
+      email_sender: { to: req.user.email, subject: 'Curevia test email', body: `<p>This is a test email from Curevia, sent at ${at} (IST). Email sending works.</p>` },
+      slack_alert: { text: `Curevia test message (${at} IST). Slack alerts work.` }
+    }
+    const result = await deliver(db, { channel: def.channel, type: 'test', dedupeKey: key, recipient: slot === 'email_sender' ? req.user.email : null, now: clock }, () => integrations.send(slot, payloads[slot]))
+    res.json({ result: result.status, error: result.error || null, slot: integrations.state(slot) })
+  }))
 
   return r
 }

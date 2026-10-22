@@ -29,7 +29,8 @@ export function createApp(input) {
   const app = express()
   app.set('trust proxy', config.trustProxy)
   app.disable('x-powered-by')
-  app.use(helmet({ contentSecurityPolicy: false })) // CSP is added with the Integrations page (stage 4)
+  // Embarko adds its own Content-Security-Policy (https allowed), which already covers the viaSocket embed.
+  app.use(helmet({ contentSecurityPolicy: false }))
   app.use(express.json({ limit: '100kb' }))
   app.use(cookieParser(config.sessionSecret))
   app.use(sameOriginWrites(config.appUrl))

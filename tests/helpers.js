@@ -3,23 +3,36 @@ import bcrypt from 'bcryptjs'
 import { loadConfig } from '../server/config.js'
 import { openDb } from '../server/db/index.js'
 import { createApp } from '../server/app.js'
-import { createMailer } from '../server/services/mailer.js'
+import { buildServices } from '../server/services/index.js'
 import { ensureAdmin } from '../server/services/bootstrap.js'
 
 const bcryptSync = (pw) => bcrypt.hashSync(pw, 4)
 export const ADMIN = { email: 'admin@test.local', password: 'admin-pass-123' }
 
-// Captures emails instead of sending them (stands in for the viaSocket email_sender slot).
-export function fakeEmailTransport() {
-  const sent = []
-  return {
-    sent,
-    failNext: false,
-    async sendEmail(msg) {
-      if (this.failNext) { this.failNext = false; throw new Error('boom') }
-      sent.push(msg)
-    }
+export const FLOW_URL = (slot) => `https://flow.sokt.io/func/test-${slot}`
+
+// A fake viaSocket: signs nothing real, lists flows, and records every POST to a flow URL.
+// `reply(url, body)` can be set to change what a flow answers (e.g. HTTP 200 with an error inside).
+export function fakeViaSocket() {
+  const fake = {
+    posts: [],
+    flows: [],
+    nextReply: null, // { status, body } for the next POST only
+    replyFor: null, // (url, payload) => { status, body } | undefined
+    client: {
+      tokenFor: async (id) => `fake-token-for-${id}`,
+      user: () => ({ listFlows: async () => fake.flows })
+    },
+    fetch: async (url, init) => {
+      const payload = JSON.parse(init.body)
+      const r = fake.nextReply || fake.replyFor?.(url, payload) || { status: 200, body: { ok: true } }
+      fake.nextReply = null
+      fake.posts.push({ url, payload, ok: r.status >= 200 && r.status < 300 })
+      return { ok: r.status >= 200 && r.status < 300, status: r.status, text: async () => (typeof r.body === 'string' ? r.body : JSON.stringify(r.body)) }
+    },
+    postsTo: (slot) => fake.posts.filter((p) => p.ok && p.url === FLOW_URL(slot)).map((p) => p.payload)
   }
+  return fake
 }
 
 export async function makeApp(overrides = {}) {
@@ -29,19 +42,35 @@ export async function makeApp(overrides = {}) {
       ADMIN_EMAIL: ADMIN.email,
       ADMIN_PASSWORD: ADMIN.password,
       APP_URL: 'http://localhost:3000',
-      BCRYPT_COST: '4'
+      BCRYPT_COST: '4',
+      VIASOCKET_ORG_ID: '1',
+      VIASOCKET_PROJECT_ID: 'projTest',
+      VIASOCKET_EMBED_SECRET: 'fake-embed-secret-for-tests',
+      VIASOCKET_UNIQUE_ID: 'curevia-test'
     }),
     ...overrides.config
   }
   const db = openDb(':memory:')
   await ensureAdmin(db, config)
-  const emails = fakeEmailTransport()
-  const mailer = createMailer({ db, transport: overrides.noEmail ? null : emails })
   // Tests move time with clock.now = new Date(...)
   const clock = { now: overrides.now || new Date('2026-10-22T04:00:00.000Z') }
-  const ctx = { config, db, mailer, emails, clock: () => clock.now, ...overrides.ctx }
+  const fake = fakeViaSocket()
+  const services = buildServices({ config, db, clock: () => clock.now, client: fake.client, fetchImpl: fake.fetch })
+  // Every slot is "published" unless the test says otherwise (noEmail turns the email slot off).
+  const off = new Set(overrides.noEmail ? ['email_sender'] : overrides.off || [])
+  for (const slot of ['appointments_sheet', 'email_sender', 'slack_alert']) {
+    if (off.has(slot)) continue
+    db.prepare("INSERT INTO integrations (slot, flow_id, status, webhook_url, flow_title, updated_at) VALUES (?,?, 'active', ?, ?, ?)").run(slot, `test-${slot}`, FLOW_URL(slot), slot, new Date().toISOString())
+    fake.flows.push({ id: `test-${slot}`, title: slot, status: 'active', webhook: FLOW_URL(slot), description: '', authId: 'a', serviceId: 's' })
+  }
+  // Older tests read emails.sent / emails.failNext; they are views on the fake flow.
+  const emails = {
+    get sent() { return fake.postsTo('email_sender').map((p) => ({ to: p.to, subject: p.subject, body: p.body })) },
+    set failNext(v) { if (v) fake.nextReply = { status: 500, body: { message: 'boom' } } }
+  }
+  const ctx = { config, db, clock: () => clock.now, ...services, emails, fake, ...overrides.ctx }
   const app = createApp(ctx)
-  return { app, db, config, emails, mailer, ctx, clock, notifier: app.locals.ctx.notifier }
+  return { app, db, config, emails, fake, mailer: services.mailer, ctx, clock, notifier: services.notifier, services }
 }
 
 // A supertest agent that keeps cookies and sends the same-origin header browsers send.

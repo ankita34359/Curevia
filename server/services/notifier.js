@@ -5,7 +5,7 @@ export function createNotifier({ handlers = [] } = {}) {
   return {
     handlers,
     emit(event, payload) {
-      const p = Promise.allSettled(this.handlers.map((h) => h(event, payload))).finally(() => inflight.delete(p))
+      const p = Promise.allSettled(this.handlers.map((h) => h(event, payload))).then((rs) => { for (const r of rs) if (r.status === 'rejected') console.error(`Notification handler for "${event}" failed: ${r.reason?.message}`) }).finally(() => inflight.delete(p))
       inflight.add(p)
       return p
     },
