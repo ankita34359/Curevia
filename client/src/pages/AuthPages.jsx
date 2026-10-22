@@ -52,6 +52,7 @@ export function LoginPage() {
         <Field label="Email">{(id) => <Input id={id} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />}</Field>
         <Field label="Password">{(id) => <Input id={id} type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />}</Field>
         <Button type="submit" loading={form.busy} className="w-full">Sign in</Button>
+        <p className="text-center text-sm"><Link to="/forgot-password" className="text-ink-soft hover:text-brand-700 hover:underline">Forgot your password?</Link></p>
       </form>
       <p className="mt-6 text-center text-sm text-ink-soft">New patient? <Link to="/signup" className="font-semibold text-brand-700 hover:underline">Create an account</Link></p>
     </AuthCard>
@@ -101,7 +102,7 @@ export function VerifyEmailPage() {
   )
 }
 
-export function SetPasswordPage() {
+export function SetPasswordPage({ mode = 'set' }) {
   const [params] = useSearchParams()
   const token = params.get('token') || ''
   const navigate = useNavigate()
@@ -118,7 +119,7 @@ export function SetPasswordPage() {
     setTimeout(() => navigate('/login'), 1800)
   })
   return (
-    <AuthCard title="Set your password" subtitle={info ? `Welcome, ${info.name}. Choose a password for ${info.email}.` : undefined}>
+    <AuthCard title={mode === 'reset' ? 'Choose a new password' : 'Set your password'} subtitle={info ? `Welcome, ${info.name}. Choose a password for ${info.email}.` : undefined}>
       {loadError && <Alert tone="error">{loadError}</Alert>}
       {!info && !loadError && <Skeleton className="h-24 w-full" />}
       {done && <Alert tone="success">Password saved. Taking you to sign in…</Alert>}
@@ -127,6 +128,31 @@ export function SetPasswordPage() {
           {form.error && <Alert tone="error">{form.error}</Alert>}
           <Field label="New password" hint="At least 8 characters">{(id) => <Input id={id} type="password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />}</Field>
           <Button type="submit" loading={form.busy} className="w-full">Save password</Button>
+        </form>
+      )}
+    </AuthCard>
+  )
+}
+
+export function ForgotPasswordPage() {
+  const [email, setEmail] = useState('')
+  const [sent, setSent] = useState(false)
+  const form = useSubmit(async () => {
+    await api('/auth/forgot-password', { method: 'POST', body: { email } })
+    setSent(true)
+  })
+  return (
+    <AuthCard title="Forgot your password?" subtitle="Enter your email and we'll send you a link to choose a new one. Hospital admins sign in with the password set by the hospital.">
+      {sent ? (
+        <>
+          <Alert tone="success">If an account exists for that email, a reset link is on its way. It works for 1 hour.</Alert>
+          <Link to="/login"><Button variant="secondary" className="mt-6 w-full">Back to sign in</Button></Link>
+        </>
+      ) : (
+        <form onSubmit={form.run} className="space-y-4">
+          {form.error && <Alert tone="error">{form.error}</Alert>}
+          <Field label="Email">{(id) => <Input id={id} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />}</Field>
+          <Button type="submit" loading={form.busy} className="w-full">Send reset link</Button>
         </form>
       )}
     </AuthCard>

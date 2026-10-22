@@ -131,5 +131,27 @@ CREATE TABLE deliveries (
 );
 CREATE INDEX ix_deliveries_appt ON deliveries(appointment_id);
 `
+  },
+  {
+    id: 2,
+    name: 'password_reset_and_rebooking',
+    sql: `
+-- Remember what an appointment was before it needed rebooking (the new slot keeps that status).
+ALTER TABLE appointments ADD COLUMN status_before TEXT;
+
+-- SQLite cannot change a CHECK, so auth_tokens is rebuilt to allow reset_password.
+CREATE TABLE auth_tokens_new (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('set_password','verify_email','reset_password')),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+INSERT INTO auth_tokens_new SELECT * FROM auth_tokens;
+DROP TABLE auth_tokens;
+ALTER TABLE auth_tokens_new RENAME TO auth_tokens;
+`
   }
 ]

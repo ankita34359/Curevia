@@ -13,6 +13,7 @@ const emailField = z.string().trim().toLowerCase().email('Enter a valid email').
 const loginBody = z.object({ email: emailField, password: z.string().min(1).max(200) })
 const signupBody = z.object({ name: z.string().trim().min(2, 'Enter your name').max(100), email: emailField, password: z.string().max(200) })
 const tokenBody = z.object({ token: z.string().min(10).max(200) })
+const forgotBody = z.object({ email: emailField })
 const setPasswordBody = tokenBody.extend({ password: z.string().max(200) })
 
 export function authRoutes({ config, db, mailer }) {
@@ -36,6 +37,15 @@ export function authRoutes({ config, db, mailer }) {
     standardHeaders: true,
     legacyHeaders: false,
     handler: (_req, res) => res.status(429).json({ error: 'Too many sign-ups from this network. Please try later.' })
+  })
+
+  const forgotLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `${ipKeyGenerator(req.ip)}|${String(req.body?.email || '').toLowerCase()}`,
+    handler: (_req, res) => res.status(429).json({ error: 'Too many reset requests. Please try again in an hour.' })
   })
 
   function startSession(res, userId) {
@@ -115,10 +125,26 @@ export function authRoutes({ config, db, mailer }) {
     })
   )
 
+  // Always answers the same, so it cannot be used to find out which emails have accounts. Admin uses ADMIN_PASSWORD.
+  r.post(
+    '/forgot-password',
+    forgotLimiter,
+    wrap(async (req, res) => {
+      const { email } = parse(forgotBody, req.body)
+      const user = db.prepare("SELECT id, name, email FROM users WHERE email = ? AND active = 1 AND role != 'admin'").get(email)
+      if (user) {
+        const t = issueToken(db, user.id, 'reset_password')
+        const { subject, html } = templates.resetPassword({ name: user.name, link: linkFor(config.appUrl, '/reset-password', t.token) })
+        await mailer.send({ type: 'reset_password', dedupeKey: `reset_password:${user.id}:${t.id}`, to: user.email, subject, html })
+      }
+      res.json({ ok: true })
+    })
+  )
+
   // Lets the "set your password" page greet the doctor before they type anything.
   r.get('/set-password-info', (req, res) => {
-    const t = peekToken(db, String(req.query.token || ''), 'set_password')
-    if (!t) throw new HttpError(400, 'This link is invalid or has expired. Ask the hospital admin for a new one.')
+    const t = peekToken(db, String(req.query.token || ''), ['set_password', 'reset_password'])
+    if (!t) throw new HttpError(400, 'This link is invalid or has expired. Use "Forgot password" on the sign-in page, or ask the hospital admin for a new one.')
     const u = db.prepare('SELECT name, email FROM users WHERE id = ?').get(t.userId)
     res.json({ name: u.name, email: u.email })
   })
@@ -129,8 +155,8 @@ export function authRoutes({ config, db, mailer }) {
       const { token, password } = parse(setPasswordBody, req.body)
       const problem = passwordProblem(password)
       if (problem) throw new HttpError(400, problem)
-      const t = peekToken(db, token, 'set_password')
-      if (!t) throw new HttpError(400, 'This link is invalid or has expired. Ask the hospital admin for a new one.')
+      const t = peekToken(db, token, ['set_password', 'reset_password'])
+      if (!t) throw new HttpError(400, 'This link is invalid or has expired. Use "Forgot password" on the sign-in page, or ask the hospital admin for a new one.')
       const hash = await hashPassword(password, config.bcryptCost)
       db.transaction(() => {
         if (!consumeToken(db, t.id)) throw new HttpError(400, 'This link has already been used.')

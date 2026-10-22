@@ -25,3 +25,10 @@ export function doctorSetPassword({ name, link }) {
     html: layout('Welcome to Curevia', `<p>Hello ${esc(name)},</p><p>An account has been created for you. Choose your password using the button below. The link works for 48 hours and can be used once.</p>${button(link, 'Set my password')}`)
   }
 }
+
+export function resetPassword({ name, link }) {
+  return {
+    subject: 'Reset your Curevia password',
+    html: layout('Reset your password', `<p>Hello ${esc(name)},</p><p>Use the button below to choose a new password. The link works for 1 hour and can be used once. If you did not ask for this, you can ignore this email.</p>${button(link, 'Choose a new password')}`)
+  }
+}

@@ -1,4 +1,5 @@
-import { forwardRef, useId } from 'react'
+import { forwardRef, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { initials } from '../lib/format.js'
 
 export function Logo({ className = '', light = false }) {
   return (
@@ -94,6 +95,70 @@ export function EmptyState({ title, children, icon = '🩺' }) {
       <div className="mb-3 text-4xl" aria-hidden="true">{icon}</div>
       <h3 className="text-lg font-semibold">{title}</h3>
       {children && <p className="mx-auto mt-1 max-w-md text-ink-soft">{children}</p>}
+    </div>
+  )
+}
+
+export function Avatar({ name, photoUrl, size = 56 }) {
+  const [failed, setFailed] = useState(false)
+  const style = { width: size, height: size, fontSize: size * 0.36 }
+  if (photoUrl && !failed) return <img src={photoUrl} alt="" style={style} className="shrink-0 rounded-full object-cover" onError={() => setFailed(true)} />
+  return (
+    <span style={style} aria-hidden="true" className="inline-flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-100 to-sky-100 font-bold text-brand-800">
+      {initials(name)}
+    </span>
+  )
+}
+
+export function Modal({ title, onClose, children, wide = false }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const prev = document.activeElement
+    ref.current?.focus()
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); prev?.focus?.() }
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 p-4 pt-[8vh] backdrop-blur-sm" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`card w-full animate-fade-up p-6 outline-none ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <h2 className="text-lg font-bold">{title}</h2>
+          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-ink-muted hover:bg-slate-100">✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+export function Select({ className = '', children, ...rest }) {
+  return <select className={`${inputClass} ${className}`} {...rest}>{children}</select>
+}
+export function Textarea({ className = '', ...rest }) {
+  return <textarea className={`${inputClass} ${className}`} rows={3} {...rest} />
+}
+
+// Loads data on mount and whenever `deps` change. `reload()` refetches without the skeleton flash.
+export function useLoad(fn, deps = []) {
+  const [state, setState] = useState({ data: null, error: '', loading: true })
+  const load = useCallback(async (quiet) => {
+    if (!quiet) setState((s) => ({ ...s, loading: true }))
+    try { setState({ data: await fn(), error: '', loading: false }) } catch (e) { setState({ data: null, error: e.message, loading: false }) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
+  useEffect(() => { load() }, [load])
+  return { ...state, reload: () => load(true) }
+}
+
+export function PageHeader({ title, subtitle, actions }) {
+  return (
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+        {subtitle && <p className="mt-1 text-ink-soft">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex gap-2">{actions}</div>}
     </div>
   )
 }

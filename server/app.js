@@ -7,6 +7,9 @@ import cookieParser from 'cookie-parser'
 import { HttpError } from './lib/http.js'
 import { attachUser, requireRole, sameOriginWrites } from './auth/middleware.js'
 import { authRoutes } from './routes/auth.js'
+import { adminRoutes } from './routes/admin.js'
+import { doctorRoutes } from './routes/doctor.js'
+import { createNotifier } from './services/notifier.js'
 
 const CLIENT_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist')
 
@@ -17,7 +20,9 @@ const PAGE_ROLES = [
   ['/my', 'patient']
 ]
 
-export function createApp(ctx) {
+export function createApp(input) {
+  // clock() is injectable so tests can move time; notifier collects appointment events (emails, sheet rows in stage 4).
+  const ctx = { clock: () => new Date(), notifier: createNotifier(), ...input }
   const { config, db } = ctx
   const app = express()
   app.set('trust proxy', config.trustProxy)
@@ -31,11 +36,11 @@ export function createApp(ctx) {
   app.get('/healthz', (_req, res) => res.json({ ok: true }))
 
   app.use('/api/auth', authRoutes(ctx))
-  // Role routers are mounted here as the stages add them, always behind requireRole.
-  const roleRouters = ctx.roleRouters || {}
-  if (roleRouters.admin) app.use('/api/admin', requireRole('admin'), roleRouters.admin)
-  if (roleRouters.doctor) app.use('/api/doctor', requireRole('doctor'), roleRouters.doctor)
-  if (roleRouters.patient) app.use('/api/patient', requireRole('patient'), roleRouters.patient)
+  // Role routers, always mounted behind requireRole. `extraRouters` lets tests add probes.
+  const extra = ctx.roleRouters || {}
+  app.use('/api/admin', requireRole('admin'), adminRoutes(ctx), extra.admin || ((_q, _s, n) => n()))
+  app.use('/api/doctor', requireRole('doctor'), doctorRoutes(ctx), extra.doctor || ((_q, _s, n) => n()))
+  if (extra.patient) app.use('/api/patient', requireRole('patient'), extra.patient)
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }))
 
   // Role-restricted pages: sign-in required, then the right role.
@@ -63,5 +68,6 @@ export function createApp(ctx) {
     console.error(`Unhandled error on ${req.method} ${req.path}: ${err?.message}`) // never log bodies or patient data
     res.status(500).json({ error: 'Something went wrong. Please try again.' })
   })
+  app.locals.ctx = ctx
   return app
 }
