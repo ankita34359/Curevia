@@ -2,7 +2,7 @@ import { HttpError } from '../lib/http.js'
 import { appointmentFits } from './scheduling.js'
 
 export const TRANSITIONS = {
-  pending: ['confirmed', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking'],
+  pending: ['confirmed', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking', 'rebooked'],
   confirmed: ['completed', 'no_show', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking'],
   needs_rebooking: ['rebooked', 'cancelled_by_patient'],
   completed: [],

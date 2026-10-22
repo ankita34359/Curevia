@@ -86,7 +86,9 @@ export function overlapsExisting(db, doctorId, startUtc, endUtc, ignoreId = 0) {
 
 // Free slots a patient can move to: the same doctor first, then colleagues in the same department.
 // Used by the rebooking page, and later by the agent (it may only offer slots from this list).
-export function rebookOptions(db, appt, nowIso, { limit = 12, perDoctor = 6 } = {}) {
+export function rebookOptions(db, appt, nowIso, { limit = 12, perDoctor = 6, leadMinutes = 0 } = {}) {
+  // leadMinutes hides slots that start too soon to be useful (anything earlier counts as already past)
+  const fromIso = new Date(new Date(nowIso).getTime() + leadMinutes * 60000).toISOString()
   const dep = db.prepare('SELECT department_id FROM doctors WHERE id = ?').get(appt.doctor_id)?.department_id
   if (!dep) return []
   const doctors = db
@@ -97,7 +99,7 @@ export function rebookOptions(db, appt, nowIso, { limit = 12, perDoctor = 6 } = 
     .all(dep, appt.doctor_id)
   const all = []
   for (const d of doctors) {
-    for (const s of freeSlots(db, d.id, nowIso, { horizonDays: 14, limit: perDoctor })) {
+    for (const s of freeSlots(db, d.id, fromIso, { horizonDays: 14, limit: perDoctor })) {
       all.push({ doctorId: d.id, doctorName: d.name, startUtc: s.startUtc, endUtc: s.endUtc })
     }
   }

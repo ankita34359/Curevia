@@ -11,6 +11,7 @@ import { adminRoutes } from './routes/admin.js'
 import { doctorRoutes } from './routes/doctor.js'
 import { publicRoutes } from './routes/public.js'
 import { patientRoutes } from './routes/patient.js'
+import { cronRoutes } from './routes/cron.js'
 import { createNotifier } from './services/notifier.js'
 
 const CLIENT_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist')
@@ -39,6 +40,7 @@ export function createApp(input) {
   app.get('/healthz', (_req, res) => res.json({ ok: true }))
 
   app.use('/api/auth', authRoutes(ctx))
+  app.use('/api/cron', cronRoutes(ctx))
   // Role routers, always mounted behind requireRole. `extraRouters` lets tests add probes.
   const extra = ctx.roleRouters || {}
   app.use('/api/admin', requireRole('admin'), adminRoutes(ctx), extra.admin || ((_q, _s, n) => n()))

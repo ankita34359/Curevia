@@ -22,6 +22,8 @@ const bookBody = z.object({
 const cancelBody = z.object({ reason: z.string().trim().max(300).optional() })
 const rebookBody = z.object({ doctorId: z.number().int().positive(), startUtc: z.string().datetime() })
 
+// needs_rebooking is the normal case. A still-pending request can also be moved, when the agent offers other slots.
+const REBOOKABLE = ['needs_rebooking', 'pending']
 export const CANCEL_CUTOFF_MS = 60 * 60 * 1000 // patients can cancel up to 1 hour before
 
 class SlotTaken extends HttpError {
@@ -107,7 +109,7 @@ export function patientRoutes({ db, notifier, clock }) {
 
   r.get('/appointments/:id/rebook-options', (req, res) => {
     const a = ownRow(req)
-    if (a.status !== 'needs_rebooking') throw new HttpError(409, 'This appointment does not need rebooking')
+    if (!REBOOKABLE.includes(a.status)) throw new HttpError(409, 'This appointment does not need rebooking')
     const options = rebookOptions(db, a, clock().toISOString()).map((o) => ({ ...o, startIst: formatIst(o.startUtc) }))
     res.json({ appointment: shapeAppointment(full(a.id)), options })
   })
@@ -115,7 +117,7 @@ export function patientRoutes({ db, notifier, clock }) {
   // The old appointment becomes `rebooked`; the new one keeps the status the old one had (pending or confirmed).
   r.post('/appointments/:id/rebook', wrap(async (req, res) => {
     const old = ownRow(req)
-    if (old.status !== 'needs_rebooking') throw new HttpError(409, 'This appointment does not need rebooking')
+    if (!REBOOKABLE.includes(old.status)) throw new HttpError(409, 'This appointment does not need rebooking')
     const pick = parse(rebookBody, req.body)
     const now = clock()
     const allowed = rebookOptions(db, old, now.toISOString(), { limit: 1000, perDoctor: 1000 })
@@ -123,7 +125,8 @@ export function patientRoutes({ db, notifier, clock }) {
     const newId = db.transaction(() => {
       const slot = findBookableSlot(db, pick.doctorId, pick.startUtc, now.toISOString())
       if (!slot) throw new SlotTaken()
-      const status = old.status_before === 'confirmed' ? 'confirmed' : 'pending'
+      // needs_rebooking keeps the status it had before; a still-pending request moves as pending.
+      const status = old.status === 'needs_rebooking' && old.status_before === 'confirmed' ? 'confirmed' : 'pending'
       const id = insertAppointment({ patientId: req.user.id, doctorId: pick.doctorId, slot, details: { name: old.patient_name, age: old.age, gender: old.gender, phone: old.phone, email: old.email, reason: old.reason }, status, now })
       logEvent(db, id, 'booked', { to: status, actorRole: 'patient', actorId: req.user.id, note: `Rebooked from appointment ${old.id}`, now })
       changeStatus(db, old.id, 'rebooked', { actorRole: 'patient', actorId: req.user.id, note: `Moved to appointment ${id}`, now })

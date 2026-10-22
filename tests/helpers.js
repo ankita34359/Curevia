@@ -17,11 +17,16 @@ export function fakeViaSocket() {
   const fake = {
     posts: [],
     flows: [],
+    aiCalls: [],
+    ai: null, // (request) => { content: {...}, finishReason } | throws
     nextReply: null, // { status, body } for the next POST only
     replyFor: null, // (url, payload) => { status, body } | undefined
     client: {
       tokenFor: async (id) => `fake-token-for-${id}`,
-      user: () => ({ listFlows: async () => fake.flows })
+      user: () => ({
+        listFlows: async () => fake.flows,
+        ai: { send: async (req) => { fake.aiCalls.push(req); if (!fake.ai) throw new Error('AI is down'); return fake.ai(req) } }
+      })
     },
     fetch: async (url, init) => {
       const payload = JSON.parse(init.body)
@@ -70,7 +75,7 @@ export async function makeApp(overrides = {}) {
   }
   const ctx = { config, db, clock: () => clock.now, ...services, emails, fake, ...overrides.ctx }
   const app = createApp(ctx)
-  return { app, db, config, emails, fake, mailer: services.mailer, ctx, clock, notifier: services.notifier, services }
+  return { app, db, config, emails, fake, mailer: services.mailer, ctx, clock, notifier: services.notifier, tick: services.tick, agent: services.agent, services }
 }
 
 // A supertest agent that keeps cookies and sends the same-origin header browsers send.

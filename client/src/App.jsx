@@ -9,6 +9,7 @@ import Book from './pages/patient/Book.jsx'
 import My, { Rebook } from './pages/patient/My.jsx'
 import AdminDashboard from './pages/admin/AdminDashboard.jsx'
 import AdminDoctors from './pages/admin/AdminDoctors.jsx'
+import AdminAgent from './pages/admin/AdminAgent.jsx'
 import AdminIntegrations from './pages/admin/AdminIntegrations.jsx'
 import AdminDepartments from './pages/admin/AdminDepartments.jsx'
 import DoctorHome, { DoctorUpcoming } from './pages/doctor/DoctorHome.jsx'
@@ -18,7 +19,8 @@ const ADMIN_NAV = [
   { to: '/admin', label: 'Dashboard', end: true },
   { to: '/admin/doctors', label: 'Doctors' },
   { to: '/admin/departments', label: 'Departments' },
-  { to: '/admin/integrations', label: 'Integrations' }
+  { to: '/admin/integrations', label: 'Integrations' },
+  { to: '/admin/agent', label: 'Agent activity' }
 ]
 const DOCTOR_NAV = [
   { to: '/doctor', label: 'Today', end: true },
@@ -41,6 +43,7 @@ export default function App() {
         <Route path="doctors" element={<AdminDoctors />} />
         <Route path="departments" element={<AdminDepartments />} />
         <Route path="integrations" element={<AdminIntegrations />} />
+        <Route path="agent" element={<AdminAgent />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
       <Route path="/doctor" element={<RequireRole role="doctor"><DashboardLayout title="Doctor" items={DOCTOR_NAV} /></RequireRole>}>

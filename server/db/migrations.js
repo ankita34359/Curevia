@@ -168,5 +168,39 @@ CREATE TABLE integrations (
   updated_at TEXT NOT NULL
 );
 `
+  },
+  {
+    id: 4,
+    name: 'agent',
+    sql: `
+ALTER TABLE deliveries ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1;
+
+-- One row per case the agent has looked at. next_check_at lets the agent "wait"; closed_at ends the case.
+CREATE TABLE agent_cases (
+  appointment_id INTEGER NOT NULL REFERENCES appointments(id),
+  case_type TEXT NOT NULL CHECK (case_type IN ('pending','needs_rebooking')),
+  next_check_at TEXT,
+  closed_at TEXT,
+  closed_reason TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (appointment_id, case_type)
+);
+
+-- Every decision, with its reason. executed = 1 means the action was carried out (counts toward the limits).
+CREATE TABLE agent_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appointment_id INTEGER NOT NULL REFERENCES appointments(id),
+  case_type TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('ai','fallback','guard')),
+  action TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  params TEXT,
+  executed INTEGER NOT NULL DEFAULT 0,
+  outcome TEXT NOT NULL,
+  ai_error TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX ix_agent_log_appt ON agent_log(appointment_id, id);
+`
   }
 ]

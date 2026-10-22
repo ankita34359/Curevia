@@ -25,40 +25,61 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
   const sendSheet = (a, event) =>
     deliver(db, { channel: 'sheet', type: event, dedupeKey: `sheet:${event}:${a.id}`, appointmentId: a.id, now: clock }, () => integrations.send('appointments_sheet', sheetRow(a, event)))
 
-  const mail = (type, a, to, msg) => mailer.send({ type, dedupeKey: `email:${type}:${a.id}`, appointmentId: a.id, to, subject: msg.subject, html: msg.html })
-
+  // ---- the event emails; each type is built from the appointment's current data, so a failed one can be rebuilt and retried ----
   const myLink = `${config.appUrl}/my`
+  const EMAILS = {
+    patient_request_received: (a) => ({ to: a.email, msg: t.patientRequestReceived(a, { link: myLink }) }),
+    doctor_new_request: (a) => ({ to: a.doctorEmail, msg: t.doctorNewRequest(a, { link: `${config.appUrl}/doctor` }) }),
+    patient_confirmed: (a) => ({ to: a.email, msg: t.patientConfirmed(a, { link: myLink }) }),
+    patient_cancelled: (a) => ({ to: a.email, msg: t.patientCancelled(a, { by: a.status === 'cancelled_by_doctor' ? 'doctor' : 'patient', reason: a.cancel_reason, link: `${config.appUrl}/doctors` }) }),
+    doctor_patient_cancelled: (a) => ({ to: a.doctorEmail, msg: t.doctorPatientCancelled(a, { reason: a.cancel_reason, link: `${config.appUrl}/doctor` }) }),
+    patient_needs_rebooking: (a) => {
+      const options = rebookOptions(db, a, clock().toISOString(), { limit: 3 }).map((o) => ({ ...o, startIst: formatIst(o.startUtc) }))
+      return { to: a.email, msg: t.patientNeedsRebooking(a, { options, reason: a.cancel_reason, link: `${config.appUrl}/my/rebook/${a.id}` }) }
+    }
+  }
+  const mail = (type, a) => {
+    const { to, msg } = EMAILS[type](a)
+    return mailer.send({ type, dedupeKey: `email:${type}:${a.id}`, appointmentId: a.id, to, subject: msg.subject, html: msg.html })
+  }
 
   // event: booked | confirmed | cancelled_by_patient | cancelled_by_doctor | needs_rebooking | completed | no_show | rebooked
-  async function handle(event, { appointmentId, reason = null } = {}) {
+  async function handle(event, { appointmentId } = {}) {
     const a = load(appointmentId)
     if (!a) return
     const jobs = [sendSheet(a, event)]
     if (event === 'booked') {
       // A rebooked appointment that kept its "confirmed" status needs the confirmation, not a new request.
-      if (a.status === 'confirmed') jobs.push(mail('patient_confirmed', a, a.email, t.patientConfirmed(a, { link: myLink })))
-      else {
-        jobs.push(mail('patient_request_received', a, a.email, t.patientRequestReceived(a, { link: myLink })))
-        jobs.push(mail('doctor_new_request', a, a.doctorEmail, t.doctorNewRequest(a, { link: `${config.appUrl}/doctor` })))
-      }
-    } else if (event === 'confirmed') {
-      jobs.push(mail('patient_confirmed', a, a.email, t.patientConfirmed(a, { link: myLink })))
-    } else if (event === 'cancelled_by_doctor') {
-      jobs.push(mail('patient_cancelled', a, a.email, t.patientCancelled(a, { by: 'doctor', reason: reason || a.cancel_reason, link: `${config.appUrl}/doctors` })))
-    } else if (event === 'cancelled_by_patient') {
-      jobs.push(mail('patient_cancelled', a, a.email, t.patientCancelled(a, { by: 'patient', reason: reason || a.cancel_reason, link: `${config.appUrl}/doctors` })))
-      jobs.push(mail('doctor_patient_cancelled', a, a.doctorEmail, t.doctorPatientCancelled(a, { reason: reason || a.cancel_reason, link: `${config.appUrl}/doctor` })))
-    } else if (event === 'needs_rebooking') {
-      const options = rebookOptions(db, a, clock().toISOString(), { limit: 3 }).map((o) => ({ ...o, startIst: formatIst(o.startUtc) }))
-      jobs.push(mail('patient_needs_rebooking', a, a.email, t.patientNeedsRebooking(a, { options, reason: reason || a.cancel_reason, link: `${config.appUrl}/my/rebook/${a.id}` })))
-    }
+      if (a.status === 'confirmed') jobs.push(mail('patient_confirmed', a))
+      else jobs.push(mail('patient_request_received', a), mail('doctor_new_request', a))
+    } else if (event === 'confirmed') jobs.push(mail('patient_confirmed', a))
+    else if (event === 'cancelled_by_doctor') jobs.push(mail('patient_cancelled', a))
+    else if (event === 'cancelled_by_patient') jobs.push(mail('patient_cancelled', a), mail('doctor_patient_cancelled', a))
+    else if (event === 'needs_rebooking') jobs.push(mail('patient_needs_rebooking', a))
     const results = await Promise.allSettled(jobs)
     for (const r of results) if (r.status === 'rejected') console.error(`Notification for "${event}" failed: ${r.reason?.message}`) // never log appointment data
+  }
+
+  // Tries again for sends that failed in the last 24 hours (not ones skipped because an integration is not set up).
+  async function retryFailed({ limit = 20 } = {}) {
+    const rows = db
+      .prepare("SELECT * FROM deliveries WHERE status = 'failed' AND attempts < 5 AND appointment_id IS NOT NULL AND channel IN ('email','sheet') AND updated_at >= ? ORDER BY updated_at LIMIT ?")
+      .all(new Date(clock().getTime() - 24 * 3600000).toISOString(), limit)
+    let retried = 0
+    for (const d of rows) {
+      const a = load(d.appointment_id)
+      if (!a) continue
+      if (d.channel === 'sheet') await sendSheet(a, d.type)
+      else if (EMAILS[d.type]) await mail(d.type, a)
+      else continue // reminders and agent emails have their own retry rules
+      retried++
+    }
+    return retried
   }
 
   // A short alert for the admin in Slack (used by the agent). Same dedupe rule as everything else.
   const slackAlert = ({ dedupeKey, text, appointmentId = null }) =>
     deliver(db, { channel: 'slack', type: 'admin_alert', dedupeKey, appointmentId, now: clock }, () => integrations.send('slack_alert', { text }))
 
-  return { handle, slackAlert, load }
+  return { handle, slackAlert, retryFailed, load }
 }

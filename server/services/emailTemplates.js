@@ -78,3 +78,35 @@ export function doctorPatientCancelled(a, { reason, link }) {
     html: layout('Patient cancelled', `<p>Hello ${esc(a.doctorName)},</p><p>${esc(a.patientName)} has cancelled the appointment. The slot is free again.</p>${reason ? `<p><strong>Reason:</strong> ${esc(reason)}</p>` : ''}${details({ ...a, patientName: null })}${button(link, 'Open my dashboard')}`)
   }
 }
+
+export function patientReminder(a, { hours, link }) {
+  return {
+    subject: hours === 1 ? `Reminder: your appointment is in about 1 hour (${a.startIst})` : `Reminder: your appointment is tomorrow, ${a.startIst}`,
+    html: layout(hours === 1 ? 'Your appointment is in about an hour' : 'Your appointment is coming up', `<p>Hello ${esc(a.patientName)},</p><p>This is a friendly reminder about your confirmed appointment.</p>${details(a)}<p>Please arrive about 10 minutes early. If you can no longer come, you can cancel up to 1 hour before.</p>${button(link, 'View my appointment')}`)
+  }
+}
+export function doctorReminder(a, { link }) {
+  return {
+    subject: `Reminder: appointment request still waiting for you (${a.startIst})`,
+    html: layout('A request is waiting for your reply', `<p>Hello ${esc(a.doctorName)},</p><p>An appointment request is still pending. Please confirm or cancel it so the patient knows where they stand.</p><table style="margin:12px 0;border-collapse:collapse;font-size:14px">${row('Patient', `${a.patientName}, ${a.age} yrs`)}${row('When (IST)', a.startIst)}</table>${button(link, 'Open my dashboard')}`)
+  }
+}
+export function patientPendingUpdate(a, { link }) {
+  return {
+    subject: 'Your appointment request is still waiting for the doctor',
+    html: layout('Still waiting for the doctor', `<p>Hello ${esc(a.patientName)},</p><p>Your request is still waiting for ${esc(a.doctorName)} to confirm. We have reminded them. You do not need to do anything, and we will email you as soon as they reply.</p>${details(a)}${button(link, 'View my appointments')}`)
+  }
+}
+export function patientRebookReminder(a, { link }) {
+  return {
+    subject: 'Reminder: please choose a new time for your appointment',
+    html: layout('Please choose a new time', `<p>Hello ${esc(a.patientName)},</p><p>Your appointment on <strong>${esc(a.startIst)}</strong> with ${esc(a.doctorName)} still needs a new time. It only takes a moment to pick one.</p>${button(link, 'Choose a new time')}`)
+  }
+}
+// The AI writes a short friendly note; the code adds the greeting, the slot list and the link, so times can never be invented.
+export function patientOfferSlots(a, { note, options, link }) {
+  return {
+    subject: 'Other times are available for your appointment',
+    html: layout('Other times are available', `<p>Hello ${esc(a.patientName)},</p>${note ? `<p>${esc(note)}</p>` : ''}<p>These times are free right now:</p><ul>${options.map((o) => `<li>${esc(o.startIst)} with ${esc(o.doctorName)}</li>`).join('')}</ul><p>Nothing changes unless you choose one yourself.</p>${button(link, 'Choose a time')}`)
+  }
+}

@@ -24,7 +24,7 @@ export async function deliver(db, { channel, type, dedupeKey, appointmentId = nu
       if (e?.code === 'not_configured') { status = 'skipped'; error = e.message } else { status = 'failed'; error = String(e?.message || e).slice(0, 300) }
     }
     const t = now().toISOString()
-    if (existing) db.prepare('UPDATE deliveries SET status = ?, error = ?, updated_at = ? WHERE id = ?').run(status, error, t, existing.id)
+    if (existing) db.prepare('UPDATE deliveries SET status = ?, error = ?, updated_at = ?, attempts = attempts + 1 WHERE id = ?').run(status, error, t, existing.id)
     else db.prepare('INSERT INTO deliveries (channel, type, dedupe_key, appointment_id, recipient, status, error, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)').run(channel, type, dedupeKey, appointmentId, recipient, status, error, t, t)
     return { status, error }
   } finally {

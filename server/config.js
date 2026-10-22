@@ -25,6 +25,7 @@ export function loadConfig(env = process.env) {
     trustProxy: env.TRUST_PROXY === undefined ? 1 : Number(env.TRUST_PROXY),
     bcryptCost: Number(env.BCRYPT_COST) || 12,
     loginRateLimit: { windowMs: 15 * 60 * 1000, max: 10 },
+    agent: { service: env.AGENT_SERVICE || 'openai', model: env.AGENT_MODEL || 'gpt-5-mini' },
     viasocket: {
       orgId: env.VIASOCKET_ORG_ID || '',
       projectId: env.VIASOCKET_PROJECT_ID || '',

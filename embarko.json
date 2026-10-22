@@ -1,0 +1,11 @@
+{
+  "$schema": "https://embarko.ai/schema/embarko.json",
+  "schedules": [
+    {
+      "cron": "*/5 * * * *",
+      "path": "/api/cron/tick",
+      "timezone": "Asia/Kolkata",
+      "name": "curevia tick (reminders and agent)"
+    }
+  ]
+}

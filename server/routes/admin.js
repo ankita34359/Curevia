@@ -38,7 +38,7 @@ function queryAppointments(db, q, limit = 1000) {
   return db.prepare(`${APPT_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.start_utc DESC LIMIT ${limit}`).all(...args)
 }
 
-export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, integrations }) {
+export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, integrations, tick }) {
   const r = Router()
 
   // ---- dashboard ----
@@ -203,6 +203,46 @@ export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, in
       res.json({ doctor: shapeDoctor(getDoctor(db, Number(req.params.id))) })
     })
   )
+
+  // ---- agent activity ----
+  r.get('/agent', (_req, res) => {
+    const now = clock()
+    const cases = db
+      .prepare(
+        `SELECT c.appointment_id, c.case_type, c.next_check_at, c.created_at AS case_created, a.start_utc, du.name AS doctor, dep.name AS department, a.status
+         FROM agent_cases c JOIN appointments a ON a.id = c.appointment_id JOIN doctors d ON d.id = a.doctor_id JOIN users du ON du.id = d.user_id JOIN departments dep ON dep.id = d.department_id
+         WHERE c.closed_at IS NULL ORDER BY c.created_at`
+      )
+      .all()
+    const open = [
+      ...db.prepare("SELECT id, 'pending' AS t FROM appointments WHERE status = 'pending' AND start_utc > ?").all(now.toISOString()),
+      ...db.prepare("SELECT id, 'needs_rebooking' AS t FROM appointments WHERE status = 'needs_rebooking'").all()
+    ]
+    const stats = db.prepare("SELECT appointment_id, case_type, action, COUNT(*) AS n FROM agent_log WHERE executed = 1 GROUP BY appointment_id, case_type, action").all()
+    const last = db.prepare('SELECT action, reason, source, executed, outcome, created_at FROM agent_log WHERE appointment_id = ? AND case_type = ? ORDER BY id DESC LIMIT 1')
+    const known = new Set(cases.map((c) => `${c.appointment_id}:${c.case_type}`))
+    const waiting = open.filter((o) => !known.has(`${o.id}:${o.t}`)).length // stuck bookings the agent has not looked at yet
+    const view = cases.map((c) => {
+      const n = (a) => stats.find((x) => x.appointment_id === c.appointment_id && x.case_type === c.case_type && x.action === a)?.n || 0
+      const l = last.get(c.appointment_id, c.case_type)
+      return {
+        appointmentId: c.appointment_id, caseType: c.case_type, doctor: c.doctor, department: c.department, status: c.status, whenIst: fmt(c.start_utc),
+        openSince: fmt(c.case_created), nextCheckIst: c.next_check_at ? fmt(c.next_check_at) : null,
+        done: { doctorReminders: n('remind_doctor'), patientReminders: n('remind_patient'), adminAlerted: n('alert_admin') > 0, offers: n('offer_slots_to_patient') },
+        lastDecision: l ? { action: l.action, reason: l.reason, source: l.source, executed: !!l.executed, outcome: l.outcome, atIst: fmt(l.created_at) } : null
+      }
+    })
+    const decisions = db.prepare('SELECT * FROM agent_log ORDER BY id DESC LIMIT 100').all().map((d) => ({
+      id: d.id, appointmentId: d.appointment_id, caseType: d.case_type, source: d.source, action: d.action, reason: d.reason, executed: !!d.executed, outcome: d.outcome, aiError: d.ai_error,
+      params: d.params ? JSON.parse(d.params) : null, atIst: fmt(d.created_at)
+    }))
+    res.json({ openCases: view, notLookedAtYet: waiting, decisions, aiConfigured: viasocket.configured })
+  })
+
+  // Runs the same job the 5-minute schedule runs.
+  r.post('/agent/check-now', wrap(async (_req, res) => {
+    res.json({ result: await tick.run() })
+  }))
 
   // ---- viaSocket integrations ----
   r.get('/integrations', wrap(async (req, res) => {

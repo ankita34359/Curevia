@@ -194,9 +194,20 @@ describe('rebooking', () => {
     expect(statusOf(db, id)).toBe('cancelled_by_patient')
   })
 
-  it('only needs_rebooking appointments can be rebooked', async () => {
-    const { patient, doctorId, id } = await rebookSetup('pending')
+  it('only needs_rebooking or pending appointments can be moved; a confirmed one cannot', async () => {
+    const { patient, db, doctorId, id } = await rebookSetup('confirmed')
     await patient.get(`/api/patient/appointments/${id}/rebook-options`).expect(409)
     await patient.post(`/api/patient/appointments/${id}/rebook`).send({ doctorId, startUtc: FRI_930 }).expect(409)
+    expect(statusOf(db, id)).toBe('confirmed')
+  })
+
+  it('a still-pending request can be moved to an offered slot and stays pending', async () => {
+    const { patient, db, id, second } = await rebookSetup('pending')
+    const opts = (await patient.get(`/api/patient/appointments/${id}/rebook-options`)).body.options
+    expect(opts.length).toBeGreaterThan(0)
+    const res = await patient.post(`/api/patient/appointments/${id}/rebook`).send({ doctorId: second.doctorId, startUtc: opts.find((o) => o.doctorId === second.doctorId).startUtc })
+    expect(res.status).toBe(201)
+    expect(res.body.appointment.status).toBe('pending')
+    expect(statusOf(db, id)).toBe('rebooked')
   })
 })

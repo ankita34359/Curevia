@@ -187,7 +187,8 @@ export function Rebook() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <h1 className="text-3xl font-bold tracking-tight">Pick a new time</h1>
-      {data && <p className="mt-1 text-ink-soft">Your visit with {data.appointment.doctorName} on {data.appointment.startIst} can't go ahead{data.appointment.cancelReason ? ` (${data.appointment.cancelReason})` : ''}. Choose another slot below.</p>}
+      {data && data.appointment.status === 'pending' && <p className="mt-1 text-ink-soft">Your request with {data.appointment.doctorName} on {data.appointment.startIst} is still waiting for the doctor. If you pick another time below, it replaces that request.</p>}
+      {data && data.appointment.status !== 'pending' && <p className="mt-1 text-ink-soft">Your visit with {data.appointment.doctorName} on {data.appointment.startIst} can't go ahead{data.appointment.cancelReason ? ` (${data.appointment.cancelReason})` : ''}. Choose another slot below.</p>}
       {error && <Alert tone="error" className="mt-4">{error}</Alert>}
       {data && data.options.length === 0 && <EmptyState title="No free slots right now" icon="⏳">The hospital will be in touch. You can also check back soon.</EmptyState>}
       <div className="mt-6 space-y-6">

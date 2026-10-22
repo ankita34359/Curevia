@@ -45,6 +45,17 @@ export function createViaSocketService({ config, client = null, fetchImpl = glob
     embedToken: () => api().tokenFor(v.uniqueId),
     // The flows the admin built in the prebuilt UI: [{ id, title, status, webhook, ... }]
     listFlows: () => api().user(v.uniqueId).listFlows(),
+    // viaSocket's AI API, server side only. Returns the parsed JSON answer (responseType json_schema).
+    async ai(request) {
+      const call = api().user(v.uniqueId).ai.send(request)
+      let timer
+      const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('The AI did not answer in time')), timeoutMs) })
+      try {
+        const out = await Promise.race([call, limit])
+        if (out?.finishReason === 'truncated') throw new Error('The AI answer was cut off')
+        return out?.content
+      } finally { clearTimeout(timer) }
+    },
     // Runs a flow. Throws unless the run really worked: HTTP error, or an error inside the reply body.
     async postToFlow(url, payload) {
       if (!isFlowUrl(url)) throw new Error('Stored flow address is not a viaSocket flow URL')
