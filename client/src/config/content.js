@@ -24,3 +24,18 @@ const CHECKLISTS = [
   { match: /ortho|bone|joint/i, items: ['Photo ID', 'Previous X-rays and scans', 'A list of the medicines you currently take', 'Comfortable clothing that is easy to adjust', 'Reach the hospital 10 minutes early'] }
 ]
 export const checklistFor = (department = '') => (CHECKLISTS.find((c) => c.match.test(department))?.items) || DEFAULT_CHECKLIST
+
+// Fake demo details. Replace with the real hospital's before going live.
+export const HOSPITAL = {
+  name: 'Curevia',
+  address: ['Curevia Hospital (demo address)', '12 Example Road, Sample Nagar', 'Bengaluru 560001, India'],
+  phone: '+91 80 0000 0000',
+  phoneHref: 'tel:+918000000000',
+  emergencyNumber: '108'
+}
+
+export const HOW_IT_WORKS = [
+  { icon: '🩺', title: 'Choose a doctor', text: 'Browse by department or search by name, and see who has free slots soon.' },
+  { icon: '🕒', title: 'Pick a time', text: 'Select a day and a time that suits you. Times are shown in India time.' },
+  { icon: '✉️', title: 'Get confirmed by email', text: 'The doctor confirms your request and we email you, with reminders before your visit.' }
+]

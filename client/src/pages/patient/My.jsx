@@ -99,8 +99,9 @@ export function CancelDialog({ a, onClose, onDone }) {
     try { await api(`/patient/appointments/${a.id}/cancel`, { method: 'POST', body: { reason: reason || undefined } }); onDone() } catch (e) { setError(e.message); setBusy(false) }
   }
   return (
-    <Modal title="Cancel this appointment?" onClose={onClose}>
-      <p className="text-ink-soft">{a.startIst} with {a.doctorName}. This frees the slot for someone else.</p>
+    <Modal title="Are you sure?" onClose={onClose}>
+      <p className="font-medium">{a.startIst} with {a.doctorName}</p>
+      <p className="mt-1 text-ink-soft">{a.status === 'needs_rebooking' ? "You won't be offered a new time for this visit." : 'This frees your slot, so someone else can book it.'}</p>
       {error && <Alert tone="error" className="mt-3">{error}</Alert>}
       <label className="mt-4 block text-sm font-medium" htmlFor="why">Reason (optional)</label>
       <input id="why" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />

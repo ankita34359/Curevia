@@ -11,5 +11,6 @@ if (process.env.NODE_ENV === 'production') {
 const dataDir = path.resolve(process.env.DATA_DIR || './data')
 const db = openDb(path.join(dataDir, 'curevia.db'))
 await seedDemo(db)
-console.log(`Demo data added to ${dataDir}. Fake logins (password "${DEMO_PASSWORD}"): anita.rao@example.com, vikram.shah@example.com, meera.iyer@example.com, patient@example.com`)
+console.log(`Demo data added to ${dataDir}: 6 departments, 12 fake doctors, 1 fake patient.`)
+console.log(`Fake logins all use the password "${DEMO_PASSWORD}": patient@example.com, anita.rao@example.com (General Medicine), and <firstname>.<lastname>@example.com for the other doctors.`)
 db.close()

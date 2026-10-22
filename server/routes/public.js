@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { HttpError, parse } from '../lib/http.js'
 import { addDays, formatIst, formatIstDate, formatIstTime, isDateStr, istDate } from '../lib/time.js'
 import { DOCTOR_SELECT, shapeDoctor } from '../services/doctors.js'
-import { BOOKING_HORIZON_DAYS, daySlotsWithState, nextAvailable } from '../services/scheduling.js'
+import { BOOKING_HORIZON_DAYS, daySlotsWithState, freeSlots, nextAvailable } from '../services/scheduling.js'
 
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 export const slotView = (s) => ({ startUtc: s.startUtc, endUtc: s.endUtc, time: s.time, timeIst: formatIstTime(s.startUtc), state: s.state })
@@ -42,6 +42,14 @@ export function publicRoutes({ db, clock }) {
     const row = db.prepare(`${listed} AND d.id = ?`).get(Number(req.params.id))
     if (!row) throw new HttpError(404, 'Doctor not found')
     res.json({ doctor: withNext(row) })
+  })
+
+  // The next free slots (any day), for the doctor profile page.
+  r.get('/doctors/:id/next-slots', (req, res) => {
+    const row = db.prepare(`${listed} AND d.id = ?`).get(Number(req.params.id))
+    if (!row) throw new HttpError(404, 'Doctor not found')
+    const slots = freeSlots(db, row.id, clock().toISOString(), { horizonDays: BOOKING_HORIZON_DAYS, limit: 12 })
+    res.json({ slots: slots.map((s) => ({ startUtc: s.startUtc, dateIst: formatIstDate(s.startUtc), dayIst: istDate(s.startUtc), timeIst: formatIstTime(s.startUtc) })) })
   })
 
   // Seven days of slots starting at `from` (an India-time date). Full and past slots are returned so the UI can disable them.

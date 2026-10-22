@@ -4,7 +4,7 @@ import { api } from '../../lib/api.js'
 import { Button, useLoad } from '../../components/ui.jsx'
 import { DoctorCard, DoctorCardSkeleton } from '../../components/DoctorCard.jsx'
 import { iconFor } from '../../lib/format.js'
-import { HEALTH_TIPS, HEALTH_TIPS_NOTE } from '../../config/content.js'
+import { HEALTH_TIPS, HEALTH_TIPS_NOTE, HOW_IT_WORKS } from '../../config/content.js'
 
 function SearchBar() {
   const navigate = useNavigate()
@@ -53,9 +53,26 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="bg-white py-14" aria-labelledby="how-h">
+        <div className="mx-auto max-w-7xl px-6">
+          <h2 id="how-h" className="text-center text-2xl font-bold">How it works</h2>
+          <ol className="mt-8 grid gap-6 md:grid-cols-3">
+            {HOW_IT_WORKS.map((s, i) => (
+              <li key={s.title} className="relative animate-fade-up rounded-2xl bg-gradient-to-br from-brand-50 to-sky-50 p-6 text-center" style={{ animationDelay: `${i * 80}ms` }}>
+                <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm" aria-hidden="true">{s.icon}</span>
+                <p className="mt-4 text-xs font-bold uppercase tracking-widest text-brand-700">Step {i + 1}</p>
+                <h3 className="mt-1 text-lg font-semibold">{s.title}</h3>
+                <p className="mt-2 text-sm text-ink-soft">{s.text}</p>
+                {i < HOW_IT_WORKS.length - 1 && <span className="absolute -right-5 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-brand-700 text-white shadow md:flex" aria-hidden="true">→</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
       <section className="mx-auto max-w-7xl px-6 py-14" aria-labelledby="dept-h">
         <div className="mb-6 flex items-end justify-between"><h2 id="dept-h" className="text-2xl font-bold">Browse by department</h2><Link to="/doctors" className="text-sm font-semibold text-brand-700 hover:underline">All doctors →</Link></div>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
           {deps.loading && [0, 1, 2, 3].map((i) => <div key={i} className="card h-32 animate-pulse" />)}
           {deps.data?.departments.map((d, i) => (
             <Link key={d.id} to={`/doctors?department=${d.id}`} className="card group animate-fade-up p-5 transition duration-200 hover:-translate-y-1 hover:shadow-lg" style={{ animationDelay: `${i * 50}ms` }}>

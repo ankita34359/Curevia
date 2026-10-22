@@ -4,6 +4,7 @@ import { Forbidden, NotFound, RequireRole } from './components/Guards.jsx'
 import { ForgotPasswordPage, LoginPage, SetPasswordPage, SignupPage, VerifyEmailPage } from './pages/AuthPages.jsx'
 import Home from './pages/patient/Home.jsx'
 import Doctors from './pages/patient/Doctors.jsx'
+import DoctorProfile from './pages/patient/DoctorProfile.jsx'
 import Book from './pages/patient/Book.jsx'
 import My, { Rebook } from './pages/patient/My.jsx'
 import AdminDashboard from './pages/admin/AdminDashboard.jsx'
@@ -49,6 +50,7 @@ export default function App() {
       <Route element={<PatientLayout />}>
         <Route index element={<Home />} />
         <Route path="/doctors" element={<Doctors />} />
+        <Route path="/doctors/:id" element={<DoctorProfile />} />
         <Route path="/book" element={<Book />} />
         <Route path="/my" element={<RequireRole role="patient"><My /></RequireRole>} />
         <Route path="/my/rebook/:id" element={<RequireRole role="patient"><Rebook /></RequireRole>} />
