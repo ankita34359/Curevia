@@ -9,7 +9,7 @@ const CARDS = [
   { key: 'cancelled', label: 'Cancelled', hint: 'By patients or doctors', tone: 'from-red-50 to-white' },
   { key: 'needsRebooking', label: 'Needs rebooking', hint: 'Waiting for a new slot', tone: 'from-orange-50 to-white' }
 ]
-const STATUSES = ['pending', 'confirmed', 'completed', 'no_show', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking', 'rebooked']
+const STATUSES = ['pending', 'confirmed', 'completed', 'no_show', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking', 'rebooked', 'expired']
 
 export default function AdminDashboard() {
   const dash = useLoad(() => api('/admin/dashboard'))

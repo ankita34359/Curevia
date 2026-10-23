@@ -40,9 +40,11 @@ Signs in with `ADMIN_EMAIL` / `ADMIN_PASSWORD` (the account is kept in sync with
 
 ## Appointment statuses
 `pending` -> `confirmed` -> `completed` / `no_show`
+`pending` -> `expired` (the appointment time passed and the doctor never confirmed it; set by the agent, final)
 `pending` / `confirmed` -> `cancelled_by_patient` / `cancelled_by_doctor` / `needs_rebooking` -> `rebooked`
 (also `pending` -> `rebooked` when a patient moves a pending request to an offered slot, and `needs_rebooking` -> `cancelled_by_patient` if the patient declines).
 A booking stays `pending` until the doctor confirms. A slot can never be double-booked: a unique database index plus an overlap check enforce it.
+An `expired` request releases its slot and cannot be confirmed or cancelled; the patient is emailed and sees a **Book again** link.
 When a patient picks a new slot, the new appointment keeps the status the old one had (a confirmed one stays confirmed).
 
 ---
@@ -53,7 +55,7 @@ The admin sets up each slot once on **Admin -> Integrations** (needs `VIASOCKET_
 
 | Slot | App and action (ids read from the live catalog) | Curevia sends |
 | --- | --- | --- |
-| `appointments_sheet` | Google Sheets, **Add New Row to Sheet** (`rowxsuumuqrt`) | `appointment_id, patient_name, age, gender, phone, email, reason, doctor, department, date, time, status, event, at` (IST). One row per booking and per status change; `event` = booked / confirmed / cancelled_by_patient / cancelled_by_doctor / needs_rebooking / completed / no_show / rebooked. |
+| `appointments_sheet` | Google Sheets, **Add New Row to Sheet** (`rowxsuumuqrt`) | `appointment_id, patient_name, age, gender, phone, email, reason, doctor, department, date, time, status, event, at` (IST). One row per booking and per status change; `event` = booked / confirmed / cancelled_by_patient / cancelled_by_doctor / needs_rebooking / completed / no_show / rebooked / expired. |
 | `email_sender` | Gmail, **Send Email** (`rowogelpy0h6`) | `to, subject, body` (HTML). Curevia writes every email. |
 | `slack_alert` | Slack, **Send Message** (`row1jrbor`) | `text`, to `#curevia-alerts`. Used for the agent's admin alerts. |
 
@@ -71,11 +73,15 @@ How it works:
 The route checks the secret and **replies `202` at once** (`{accepted, started}`); the work runs in the background, because Embarko gives up on a scheduled call after 300 s. One lock means only one tick runs at a time: a call that arrives while one is still going just replies `started: false, skipped: "already running"` (a lock older than 10 minutes is treated as dead). A tick stops starting new work after 200 s, and every viaSocket call is cut off after 20 s (AI: 30 s). While required settings are missing (holding page), the route still answers fast: `401` without the secret, otherwise `503` and nothing runs.
 A tick (safe to run twice, even at once) does three things: sends due reminders, retries failed sends, and runs the agent.
 
-**Agent.** Open cases: (a) `pending` and not yet confirmed, (b) `needs_rebooking`. For each case the viaSocket AI API (server side only, `json_schema` answer, model `AGENT_SERVICE` / `AGENT_MODEL`) is given scheduling facts and the free slots found by our code, and chooses **one** action: `remind_doctor`, `alert_admin`, `offer_slots_to_patient` (up to 3 of the given slots, plus a short friendly note), `remind_patient`, `wait` (minutes), `close_case`.
+**Agent.** Open cases: (a) `pending` and not yet confirmed (and whose time has not passed), (b) `needs_rebooking`. For each case the viaSocket AI API (server side only, `json_schema` answer, model `AGENT_SERVICE` / `AGENT_MODEL`) is given scheduling facts and the free slots found by our code, and chooses **one** action: `remind_doctor`, `alert_admin`, `offer_slots_to_patient` (up to 3 of the given slots, plus a short friendly note), `remind_patient`, `wait` (minutes), `close_case`.
+**Quiet hours.** The agent sends no patient or doctor email from **10 PM to 8 AM IST**. A step chosen in that time is not sent: a `hold_quiet_hours` decision is logged with the reason and the time it will be decided again (8 AM), and the AI is asked again then with fresh facts. Exceptions: an appointment **less than 2 hours away** is not held, and **Slack alerts to the admin go at any time**. This covers what the agent sends (doctor reminders, patient reminders, slot offers). The booking, confirmation, cancellation and rebooking emails and the 24 h / 1 h reminders for confirmed visits are not part of it. Quiet hours are real clock times; demo timing does not shorten them. For a late-night demo set `AGENT_QUIET_HOURS=off`.
+
+**Expiry.** At every tick, a `pending` appointment whose start time has passed is marked **expired** (no AI involved): the patient is emailed "your request expired, please book again", a sheet row (`expired`) is added, the admin gets a Slack alert (no patient details), the case is closed and an `expire_request` decision is logged with what was sent. The patient email is not held for quiet hours, because the appointment time is already past. Failed emails and sheet rows are retried like any others.
+
 The AI never sees patient names, phone numbers, emails or reasons for the visit, and never gives medical advice.
 
 Our code checks every action before doing it:
-- at most **2 doctor reminders** and **2 patient reminders**, an hour apart; slot offers are at least 2 hours apart (max 3 per case);
+- at most **2 doctor reminders** and **2 patient reminders**, an hour apart; slot offers are at least 2 hours apart, **max 2 per case**: the first offer, and a second one only if the free slots have changed since the first (the same list is never sent twice);
 - **admin alert at most once** per case (Slack, no patient details);
 - only slots from the free list it was given, up to 3, re-checked as free just before the email goes out;
 - `close_case` only after the admin has been alerted;
@@ -112,6 +118,10 @@ SKIP_VIASOCKET_CHECK=1 npm test   # offline
 Tests use a **fake viaSocket and a fake AI** and cover: double booking blocked (also two at once), other roles' pages and APIs refused, reminders sent once, availability change creates needs_rebooking, the agent obeying every guardrail and falling back to fixed rules, and a run reply containing an error being treated as failed.
 `npm run check:viasocket` runs viaSocket's own check script (invented ids, hand-built URLs, hard-coded secret). The build and tests were also run on a real Node 20.20.2 (what Embarko uses).
 
+## Database changes
+
+Migration 5 adds the `expired` status. SQLite cannot change a CHECK, so it rebuilds the `appointments` table (new table, copy every row and column, drop, rename, recreate the 4 indexes) with foreign keys off, in one transaction, and stops with nothing changed if it would break a foreign key. Before it runs, the database file is copied to `DATA_DIR/curevia.db.before-migration-5` (kept; delete it when you no longer need it). If the app has to be rolled back to the previous version, the old code runs against the new table; an `expired` row is only shown with a raw status name there.
+
 ## Environment variables
 
 | Variable | Needed | What it is |
@@ -125,6 +135,7 @@ Tests use a **fake viaSocket and a fake AI** and cover: double booking blocked (
 | `VIASOCKET_UNIQUE_ID` | optional | Default `curevia-hospital`. The one viaSocket user that owns all flows and AI threads. |
 | `VIASOCKET_EMBED_SECRET` | for viaSocket | Signing secret (viaSocket -> Integrations -> the embed -> Install Code). Server only. |
 | `AGENT_SERVICE`, `AGENT_MODEL` | optional | AI for the agent. Default `openai` / `gpt-5-mini`. Must be a pair from viaSocket's documented list (see below). |
+| `AGENT_QUIET_HOURS` | optional, **on** by default | `off` (or `false` / `0` / `no`) turns quiet hours off. Anything else, or empty, leaves them on. |
 | `AGENT_DEMO_MINUTES` | optional, **off** by default | Demo timing for showing the agent live. A number from 1 to 120: the 2-hour mark becomes that many minutes (`2` = remind the doctor after 2 min, second reminder at 4, alert the admin at 6, 1 min between reminders, a request is judged after 30 s). Empty or missing = normal timing. Shows a "Demo timing on" badge on Agent activity. |
 | `TRUST_PROXY` | optional | Proxies in front of the app, default `1`. |
 | `CRON_SECRET` | set by Embarko | Protects `/api/cron/tick`. |

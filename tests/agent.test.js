@@ -130,7 +130,7 @@ describe('agent', () => {
   })
 
   it('never books, confirms or cancels anything for the patient', async () => {
-    const w = await world({ ageMin: 400, startUtc: '2026-10-22T10:30:00.000Z' })
+    const w = await world({ ageMin: 400, startUtc: '2026-10-23T10:30:00.000Z' }) // far enough ahead that the loop below never passes it
     const before = w.db.prepare('SELECT id, status, start_utc, doctor_id FROM appointments ORDER BY id').all()
     for (const action of ['remind_doctor', 'offer_slots_to_patient', 'alert_admin', 'remind_patient', 'wait', 'close_case']) {
       w.fake.ai = say(decision({ action, slot_option_ids: [1, 2, 3], wait_minutes: 10 }))

@@ -41,7 +41,7 @@ export function loadConfig(env = process.env) {
     trustProxy: env.TRUST_PROXY === undefined ? 1 : Number(env.TRUST_PROXY),
     bcryptCost: Number(env.BCRYPT_COST) || 12,
     loginRateLimit: { windowMs: 15 * 60 * 1000, max: 10 },
-    agent: { service: env.AGENT_SERVICE || 'openai', model: env.AGENT_MODEL || 'gpt-5-mini', demoMinutes: parseDemoMinutes(env.AGENT_DEMO_MINUTES), demoMinutesIgnored: env.AGENT_DEMO_MINUTES !== undefined && String(env.AGENT_DEMO_MINUTES).trim() !== '' && parseDemoMinutes(env.AGENT_DEMO_MINUTES) === null },
+    agent: { service: env.AGENT_SERVICE || 'openai', model: env.AGENT_MODEL || 'gpt-5-mini', quietHours: !/^(off|false|0|no)$/i.test(String(env.AGENT_QUIET_HOURS ?? '').trim()), demoMinutes: parseDemoMinutes(env.AGENT_DEMO_MINUTES), demoMinutesIgnored: env.AGENT_DEMO_MINUTES !== undefined && String(env.AGENT_DEMO_MINUTES).trim() !== '' && parseDemoMinutes(env.AGENT_DEMO_MINUTES) === null },
     viasocket: {
       orgId: env.VIASOCKET_ORG_ID || '',
       projectId: env.VIASOCKET_PROJECT_ID || '',

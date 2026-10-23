@@ -33,6 +33,7 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
     patient_confirmed: (a) => ({ to: a.email, msg: t.patientConfirmed(a, { link: myLink }) }),
     patient_cancelled: (a) => ({ to: a.email, msg: t.patientCancelled(a, { by: a.status === 'cancelled_by_doctor' ? 'doctor' : 'patient', reason: a.cancel_reason, link: `${config.appUrl}/doctors` }) }),
     doctor_patient_cancelled: (a) => ({ to: a.doctorEmail, msg: t.doctorPatientCancelled(a, { reason: a.cancel_reason, link: `${config.appUrl}/doctor` }) }),
+    patient_expired: (a) => ({ to: a.email, msg: t.patientRequestExpired(a, { link: `${config.appUrl}/doctors` }) }),
     patient_needs_rebooking: (a) => {
       const options = rebookOptions(db, a, clock().toISOString(), { limit: 3 }).map((o) => ({ ...o, startIst: formatIst(o.startUtc) }))
       return { to: a.email, msg: t.patientNeedsRebooking(a, { options, reason: a.cancel_reason, link: `${config.appUrl}/my/rebook/${a.id}` }) }
@@ -78,9 +79,23 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
     return retried
   }
 
+  // A pending request whose time passed: the sheet row, the patient's email and a Slack alert for the admin.
+  // Returns what happened to each, so the agent can write it in its log. Each has its own unique key, so nothing goes out twice.
+  async function expired(appointmentId) {
+    const a = load(appointmentId)
+    if (!a) return null
+    const settle = async (p) => { try { const r = await p; return r.status } catch (e) { return `failed: ${String(e?.message).slice(0, 80)}` } }
+    const [sheet, email, slack] = await Promise.all([
+      settle(sendSheet(a, 'expired')),
+      settle(mail('patient_expired', a)),
+      settle(slackAlert({ dedupeKey: `slack:request_expired:${a.id}`, appointmentId: a.id, text: `Curevia: the request for appointment #${a.id} with ${a.doctor_name} (${a.department}) on ${a.startIst} IST expired. The doctor never confirmed it. The patient has been asked to book again. Details: ${config.appUrl}/admin/agent` }))
+    ])
+    return { sheet, email, slack }
+  }
+
   // A short alert for the admin in Slack (used by the agent). Same dedupe rule as everything else.
   const slackAlert = ({ dedupeKey, text, appointmentId = null }) =>
     deliver(db, { channel: 'slack', type: 'admin_alert', dedupeKey, appointmentId, now: clock }, () => integrations.send('slack_alert', { text }))
 
-  return { handle, slackAlert, retryFailed, load }
+  return { handle, expired, slackAlert, retryFailed, load }
 }

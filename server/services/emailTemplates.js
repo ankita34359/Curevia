@@ -110,3 +110,11 @@ export function patientOfferSlots(a, { note, options, link }) {
     html: layout('Other times are available', `<p>Hello ${esc(a.patientName)},</p>${note ? `<p>${esc(note)}</p>` : ''}<p>These times are free right now:</p><ul>${options.map((o) => `<li>${esc(o.startIst)} with ${esc(o.doctorName)}</li>`).join('')}</ul><p>Nothing changes unless you choose one yourself.</p>${button(link, 'Choose a time')}`)
   }
 }
+
+// A pending request whose appointment time passed without the doctor confirming it.
+export function patientRequestExpired(a, { link }) {
+  return {
+    subject: 'Your appointment request expired: please book again',
+    html: layout('Your request expired', `<p>Hello ${esc(a.patientName)},</p><p>Your request for <strong>${esc(a.startIst)}</strong> with ${esc(a.doctorName)} was not confirmed before that time, so it has expired. We are sorry about that. Nothing is booked for you.</p><p>Please book again and choose a new time.</p>${button(link, 'Book a new appointment')}`)
+  }
+}
