@@ -25,7 +25,9 @@ export const updateDoctorSchema = z.object(doctorFields).partial()
 
 export const DOCTOR_SELECT = `
   SELECT d.id, d.user_id, u.name, u.email, u.active AS user_active, (u.password_hash IS NOT NULL) AS has_password,
-         d.department_id, dep.name AS department, d.qualification, d.experience_years, d.fee, d.languages, d.photo_url, d.about, d.active
+         d.department_id, dep.name AS department, d.qualification, d.experience_years, d.fee, d.languages, d.photo_url, d.about, d.active,
+         (SELECT COUNT(*) FROM feedback f WHERE f.doctor_id = d.id) AS rating_count,
+         (SELECT ROUND(AVG(f.rating), 1) FROM feedback f WHERE f.doctor_id = d.id) AS rating_avg
   FROM doctors d JOIN users u ON u.id = d.user_id JOIN departments dep ON dep.id = d.department_id`
 
 export const shapeDoctor = (r) => ({
@@ -41,7 +43,10 @@ export const shapeDoctor = (r) => ({
   photoUrl: r.photo_url,
   about: r.about,
   active: !!r.active,
-  hasPassword: !!r.has_password
+  hasPassword: !!r.has_password,
+  // shown only when there is at least one feedback
+  ratingCount: r.rating_count || 0,
+  ratingAvg: r.rating_count ? r.rating_avg : null
 })
 
 export const getDoctor = (db, id) => db.prepare(`${DOCTOR_SELECT} WHERE d.id = ?`).get(id)

@@ -171,7 +171,9 @@ describe('emails and the sheet', () => {
     await notifier.flush()
     expect(fake.postsTo('appointments_sheet').map((r) => [r.event, r.status])).toEqual([['booked', 'pending'], ['confirmed', 'confirmed'], ['completed', 'completed']])
     expect(emails.sent.filter((m) => m.subject.startsWith('Your appointment is confirmed'))).toHaveLength(1)
-    expect(emails.sent).toHaveLength(3) // request received, doctor request, confirmed. No email on completion.
+    expect(emails.sent).toHaveLength(4) // request received, doctor request, confirmed, and (since Phase 2) "How was your visit?" when the visit is completed
+    expect(emails.sent[3]).toMatchObject({ to: 'asha@test.local' })
+    expect(emails.sent[3].subject).toMatch(/^How was your visit with /)
   })
 
   it('patient cancel emails both sides; doctor cancel emails the patient with the reason', async () => {

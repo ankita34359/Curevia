@@ -255,5 +255,37 @@ CREATE TABLE lab_reports (
   created_at TEXT NOT NULL
 );
 `
+  },
+  {
+    id: 7,
+    name: 'feedback',
+    // Patient feedback after a completed visit. Two added tables, nothing existing is touched.
+    // feedback.appointment_id is UNIQUE: one feedback per visit, enforced by the database.
+    // feedback_requests only exists for visits completed after this release, so old visits never get a retroactive email.
+    sql: `
+CREATE TABLE feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appointment_id INTEGER NOT NULL UNIQUE REFERENCES appointments(id),
+  doctor_id INTEGER NOT NULL REFERENCES doctors(id),
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment TEXT NOT NULL DEFAULT '',
+  category TEXT CHECK (category IS NULL OR category IN ('praise','suggestion','complaint','urgent')),
+  category_source TEXT CHECK (category_source IS NULL OR category_source IN ('ai','rule')),
+  summary TEXT,
+  reason TEXT,
+  ai_error TEXT,
+  sorted_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX ix_feedback_doctor ON feedback(doctor_id, created_at);
+CREATE INDEX ix_feedback_created ON feedback(created_at);
+
+-- "How was your visit?" emails waiting for their time (quiet hours hold them until 8 AM IST).
+CREATE TABLE feedback_requests (
+  appointment_id INTEGER PRIMARY KEY REFERENCES appointments(id),
+  send_after TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+`
   }
 ]

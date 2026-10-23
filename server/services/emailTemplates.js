@@ -142,3 +142,11 @@ export function doctorDailySchedule({ doctorName, dateText, items, pendingToday,
     html: layout('Your appointments for today', `<p>Hello ${esc(doctorName)},</p><p>You have <strong>${items.length} appointment${items.length === 1 ? '' : 's'}</strong> today, ${esc(dateText)}.</p><table style="width:100%;border-collapse:collapse;margin:12px 0"><thead><tr><th style="${th}">Time</th><th style="${th}">Patient</th><th style="${th}">Age</th><th style="${th}">Gender</th><th style="${th}">Reason</th><th style="${th}">Status</th></tr></thead><tbody>${rows}</tbody></table>${pending}${button(link, 'Open my dashboard')}`)
   }
 }
+
+// Sent once after the doctor marks a visit completed. The link is signed and belongs to this one visit.
+export function patientFeedbackRequest(a, { link }) {
+  return {
+    subject: `How was your visit with ${a.doctorName}?`,
+    html: layout('How was your visit?', `<p>Hello ${esc(a.patientName)},</p><p>Thank you for visiting ${esc(a.doctorName)} on <strong>${esc(a.startIst)}</strong>. It takes less than a minute to tell us how it went: a star rating and, if you like, a short comment.</p>${button(link, 'Share my feedback')}<p style="font-size:13px;color:#5b7480">Please do not put test results or other private medical details in your comment. If you need medical help, do not wait for a reply to this survey: for an emergency, call 108.</p>`)
+  }
+}

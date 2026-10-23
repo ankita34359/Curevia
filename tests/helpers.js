@@ -60,7 +60,7 @@ export async function makeApp(overrides = {}) {
   // Tests move time with clock.now = new Date(...)
   const clock = { now: overrides.now || new Date('2026-10-22T04:00:00.000Z') }
   const fake = fakeViaSocket()
-  const services = buildServices({ config, db, clock: () => clock.now, client: fake.client, fetchImpl: fake.fetch, timeouts: overrides.timeouts })
+  const services = buildServices({ config, db, clock: () => clock.now, client: fake.client, fetchImpl: fake.fetch, timeouts: overrides.timeouts, feedbackWaitMs: overrides.feedbackWaitMs })
   // Every slot is "published" unless the test says otherwise (noEmail turns the email slot off).
   const off = new Set(overrides.noEmail ? ['email_sender'] : overrides.off || [])
   for (const slot of ['appointments_sheet', 'email_sender', 'slack_alert']) {

@@ -12,6 +12,7 @@ import { doctorRoutes } from './routes/doctor.js'
 import { publicRoutes } from './routes/public.js'
 import { patientRoutes } from './routes/patient.js'
 import { cronRoutes } from './routes/cron.js'
+import { feedbackRoutes } from './routes/feedback.js'
 import { createNotifier } from './services/notifier.js'
 
 const CLIENT_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist')
@@ -41,6 +42,7 @@ export function createApp(input) {
 
   app.use('/api/auth', authRoutes(ctx))
   app.use('/api/cron', cronRoutes(ctx))
+  app.use('/api/feedback', feedbackRoutes(ctx)) // the emailed, signed feedback link (no sign-in)
   // Role routers, always mounted behind requireRole. `extraRouters` lets tests add probes.
   const extra = ctx.roleRouters || {}
   app.use('/api/admin', requireRole('admin'), adminRoutes(ctx), extra.admin || ((_q, _s, n) => n()))

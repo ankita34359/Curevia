@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../../lib/api.js'
 import { Avatar, Button, EmptyState, Skeleton, useLoad } from '../../components/ui.jsx'
+import { RatingBadge } from '../../components/Rating.jsx'
 import { rupees } from '../../lib/format.js'
 
 export default function DoctorProfile() {
@@ -27,6 +28,7 @@ export default function DoctorProfile() {
               <h1 id="doc-h" className="text-3xl font-bold tracking-tight">{d.name}</h1>
               <p className="mt-1 font-medium text-brand-700">{d.department}</p>
               <p className="text-sm text-ink-muted">{d.qualification}</p>
+              <RatingBadge avg={d.ratingAvg} count={d.ratingCount} className="mt-1" />
             </div>
           </div>
           <dl className="mt-8 grid grid-cols-3 gap-4 rounded-2xl bg-brand-50/60 p-5 text-center">

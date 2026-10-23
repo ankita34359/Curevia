@@ -223,7 +223,7 @@ describe('database', () => {
     db.prepare("INSERT INTO appointments (patient_id, doctor_id, start_utc, end_utc, status, patient_name, age, gender, phone, email, reason, created_at, updated_at) VALUES (2,1,?,?,'completed','P',1,'x','1','e','r',?,?)").run(T, T, T, T)
     const before = db.prepare('SELECT * FROM appointments').all()
     migrate(db)
-    expect(db.prepare('SELECT MAX(id) v FROM schema_migrations').get().v).toBe(6)
+    expect(db.prepare('SELECT MAX(id) v FROM schema_migrations').get().v).toBe(migrations.length) // 6 added the lab_reports table; later ones only add tables too
     expect(db.prepare('SELECT * FROM appointments').all()).toEqual(before)
     db.prepare("INSERT INTO lab_reports (appointment_id, note, marked_by, created_at) VALUES (1, 'n', 1, ?)").run(T)
     expect(() => db.prepare("INSERT INTO lab_reports (appointment_id, note, marked_by, created_at) VALUES (1, 'again', 1, ?)").run(T)).toThrow(/UNIQUE|PRIMARY/)

@@ -28,6 +28,18 @@ Google Sheet and Slack automation through **viaSocket**, and an **AI agent** tha
 4. **Availability & leave**: weekly blocks (day, start, end, slot length) and leave dates. Before saving, Curevia shows how many booked appointments would no longer fit; those become **needs rebooking**.
 5. A doctor only ever sees their own appointments.
 
+### Feedback after a visit, with AI sorting
+**Patient.** When the doctor marks a visit **Completed**, the patient gets ONE email **"How was your visit with Dr. X?"** with a button to the feedback page. The link is **signed** (`/feedback/<appointment id>.<HMAC with SESSION_SECRET>`), belongs to that one visit, works without signing in, and is **one-time**: there is at most one feedback per visit (a database UNIQUE), so after it is sent the link only says "we already have your feedback". It expires 30 days after the email was queued. The same form is reachable from **Visit history** while signed in ("Give feedback", or "You rated this visit 4/5"). The form: 1-5 stars and an optional comment of up to 500 characters; then a thank-you message.
+- **Quiet hours:** a completion between 10 PM and 8 AM IST holds the email until 8 AM (the tick sends it; it is not retried at night either). `AGENT_QUIET_HOURS=off` turns this off, like for the agent. If the patient already gave feedback from Visit history, the held email is not sent. Only visits completed after this release are asked (older ones can still be rated from Visit history).
+- The email is sent once (key `email:patient_feedback_request:<appointment>`); a failed send is retried by the tick.
+
+**AI sorting.** Each feedback is sorted by the viaSocket AI API the way the agent calls it (server side, `json_schema`, same `AGENT_SERVICE` / `AGENT_MODEL`). The AI gets only the rating and the comment (no name, phone, email or doctor) and returns a **category** (`praise` / `suggestion` / `complaint` / `urgent`), a one-line **summary** and the **reason**. `urgent` = the comment mentions a medical emergency or a serious safety issue. The AI never gives medical advice and never writes to the patient; its summary and reason are cleaned of email addresses, phone numbers and HTML before they are stored.
+- **complaint** or **urgent** -> a Slack alert (to the slot's channel, `#curevia-alerts`) with doctor, rating, category and summary: no patient name, phone or email, and not the raw comment. **urgent** also makes the patient's thank-you page say **"If this is an emergency, call 108 now."**
+- **If the AI cannot be used** (down, too slow, invalid answer, viaSocket not set up): a rating of 2 or lower = `complaint` (Slack alert, labelled "by rule"), anything else stays **unsorted**. The reason is stored, shown on the Feedback page, and logged (never the comment). The patient waits at most 10 seconds for the sorting; a feedback still unsorted after 2 minutes (for example after a restart) is sorted by the tick.
+- Limitation: with the AI down, an urgent comment on a rating of 3 or higher is not recognised; it stays unsorted (visible on the Feedback page).
+
+**Admin -> Feedback.** Every feedback with date, doctor, rating, comment, category badge (labelled **AI** or **Rule**), summary and reason; filters by category (incl. Unsorted) and doctor; the average rating per doctor. No patient name, phone or email. **Doctor cards and profiles** show "★ 4.5 (12)" once a doctor has at least one feedback. **Doctors** see their own average and the comments (no patient details) on the Today page. A Google Sheet row `feedback_received` (status stays `completed`) is added for each feedback.
+
 ### Daily schedule email (doctors)
 Every morning each **active doctor with at least one pending or confirmed appointment that day** gets ONE email, **"Your appointments for today (22 Oct 2026)"**: a table of the day's pending and confirmed appointments sorted by time (time, patient, age, gender, reason, status), how many requests are still pending (all of the doctor's pending requests from today on, with how many of them are today), and an **Open my dashboard** button. Doctors with no such appointment get nothing.
 - It uses the **existing 5-minute tick**, with no extra schedule: the **first tick at or after 8:00 AM IST** sends it. The send has a unique key per doctor per day (`email:doctor_daily_schedule:<doctor>:<date>`) stored in the database, so it is never sent twice, restarts included. A doctor whose first appointment of the day only appears later is emailed at the next tick (once).
@@ -69,7 +81,7 @@ The admin sets up each slot once on **Admin -> Integrations** (needs `VIASOCKET_
 
 | Slot | App and action (ids read from the live catalog) | Curevia sends |
 | --- | --- | --- |
-| `appointments_sheet` | Google Sheets, **Add New Row to Sheet** (`rowxsuumuqrt`) | `appointment_id, patient_name, age, gender, phone, email, reason, doctor, department, date, time, status, event, at` (IST). One row per booking and per status change; `event` = booked / confirmed / cancelled_by_patient / cancelled_by_doctor / needs_rebooking / completed / no_show / rebooked / expired / lab_report_ready. |
+| `appointments_sheet` | Google Sheets, **Add New Row to Sheet** (`rowxsuumuqrt`) | `appointment_id, patient_name, age, gender, phone, email, reason, doctor, department, date, time, status, event, at` (IST). One row per booking and per status change; `event` = booked / confirmed / cancelled_by_patient / cancelled_by_doctor / needs_rebooking / completed / no_show / rebooked / expired / lab_report_ready / feedback_received. |
 | `email_sender` | Gmail, **Send Email** (`rowogelpy0h6`) | `to, subject, body` (HTML). Curevia writes every email. |
 | `slack_alert` | Slack, **Send Message** (`row1jrbor`) | `text`, to `#curevia-alerts`. Used for the agent's admin alerts. |
 
@@ -133,6 +145,8 @@ Tests use a **fake viaSocket and a fake AI** and cover: double booking blocked (
 `npm run check:viasocket` runs viaSocket's own check script (invented ids, hand-built URLs, hard-coded secret). The build and tests were also run on a real Node 20.20.2 (what Embarko uses).
 
 ## Database changes
+
+Migrations 6 and 7 only add tables (`lab_reports`; `feedback` and `feedback_requests`), so the previous version still runs against a migrated database.
 
 Migration 5 adds the `expired` status. SQLite cannot change a CHECK, so it rebuilds the `appointments` table (new table, copy every row and column, drop, rename, recreate the 4 indexes) with foreign keys off, in one transaction, and stops with nothing changed if it would break a foreign key. Before it runs, the database file is copied to `DATA_DIR/curevia.db.before-migration-5` (kept; delete it when you no longer need it). If the app has to be rolled back to the previous version, the old code runs against the new table; an `expired` row is only shown with a raw status name there.
 

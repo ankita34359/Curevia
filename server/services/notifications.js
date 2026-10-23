@@ -3,6 +3,8 @@ import { APPT_SELECT } from './appointments.js'
 import { deliver } from './deliveries.js'
 import { rebookOptions } from './scheduling.js'
 import * as t from './emailTemplates.js'
+import { feedbackLink } from './feedbackToken.js'
+import { isQuietNow } from './agent/quiet.js'
 
 // Turns "something happened to an appointment" into emails, a Google Sheet row and (for the agent) Slack alerts.
 // Every send has a unique key per type per appointment, so replays and double ticks never send twice.
@@ -33,6 +35,7 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
     patient_confirmed: (a) => ({ to: a.email, msg: t.patientConfirmed(a, { link: myLink }) }),
     patient_cancelled: (a) => ({ to: a.email, msg: t.patientCancelled(a, { by: a.status === 'cancelled_by_doctor' ? 'doctor' : 'patient', reason: a.cancel_reason, link: `${config.appUrl}/doctors` }) }),
     doctor_patient_cancelled: (a) => ({ to: a.doctorEmail, msg: t.doctorPatientCancelled(a, { reason: a.cancel_reason, link: `${config.appUrl}/doctor` }) }),
+    patient_feedback_request: (a) => ({ to: a.email, msg: t.patientFeedbackRequest(a, { link: feedbackLink(config.appUrl, config.sessionSecret, a.id) }) }),
     patient_lab_report_ready: (a) => ({ to: a.email, msg: t.patientLabReportReady(a, { note: a.lab_note, link: myLink }) }),
     patient_expired: (a) => ({ to: a.email, msg: t.patientRequestExpired(a, { link: `${config.appUrl}/doctors` }) }),
     patient_needs_rebooking: (a) => {
@@ -45,7 +48,7 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
     return mailer.send({ type, dedupeKey: `email:${type}:${a.id}`, appointmentId: a.id, to, subject: msg.subject, html: msg.html })
   }
 
-  // event: booked | confirmed | cancelled_by_patient | cancelled_by_doctor | needs_rebooking | completed | no_show | rebooked | lab_report_ready
+  // event: booked | confirmed | cancelled_by_patient | cancelled_by_doctor | needs_rebooking | completed | no_show | rebooked | lab_report_ready | feedback_received
   async function handle(event, { appointmentId } = {}) {
     const a = load(appointmentId)
     if (!a) return
@@ -69,8 +72,10 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
       .prepare("SELECT * FROM deliveries WHERE status = 'failed' AND attempts < 5 AND appointment_id IS NOT NULL AND channel IN ('email','sheet') AND updated_at >= ? ORDER BY updated_at LIMIT ?")
       .all(new Date(clock().getTime() - 24 * 3600000).toISOString(), limit)
     let retried = 0
+    const quiet = config.agent?.quietHours !== false && isQuietNow(clock().toISOString())
     for (const d of rows) {
       if (timeUp()) break
+      if (quiet && d.type === 'patient_feedback_request') continue // a "how was your visit?" email is not retried between 10 PM and 8 AM IST
       const a = load(d.appointment_id)
       if (!a) continue
       if (d.channel === 'sheet') await sendSheet(a, d.type)
@@ -99,5 +104,5 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
   const slackAlert = ({ dedupeKey, text, appointmentId = null }) =>
     deliver(db, { channel: 'slack', type: 'admin_alert', dedupeKey, appointmentId, now: clock }, () => integrations.send('slack_alert', { text }))
 
-  return { handle, expired, slackAlert, retryFailed, load }
+  return { handle, expired, slackAlert, retryFailed, load, mail }
 }

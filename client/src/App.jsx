@@ -10,6 +10,8 @@ import My, { Rebook } from './pages/patient/My.jsx'
 import AdminDashboard from './pages/admin/AdminDashboard.jsx'
 import AdminDoctors from './pages/admin/AdminDoctors.jsx'
 import AdminAgent from './pages/admin/AdminAgent.jsx'
+import AdminFeedback from './pages/admin/AdminFeedback.jsx'
+import { FeedbackByLink, FeedbackSignedIn } from './pages/patient/Feedback.jsx'
 import AdminIntegrations from './pages/admin/AdminIntegrations.jsx'
 import AdminDepartments from './pages/admin/AdminDepartments.jsx'
 import DoctorHome, { DoctorUpcoming } from './pages/doctor/DoctorHome.jsx'
@@ -20,6 +22,7 @@ const ADMIN_NAV = [
   { to: '/admin/doctors', label: 'Doctors' },
   { to: '/admin/departments', label: 'Departments' },
   { to: '/admin/integrations', label: 'Integrations' },
+  { to: '/admin/feedback', label: 'Feedback' },
   { to: '/admin/agent', label: 'Agent activity' }
 ]
 const DOCTOR_NAV = [
@@ -43,6 +46,7 @@ export default function App() {
         <Route path="doctors" element={<AdminDoctors />} />
         <Route path="departments" element={<AdminDepartments />} />
         <Route path="integrations" element={<AdminIntegrations />} />
+        <Route path="feedback" element={<AdminFeedback />} />
         <Route path="agent" element={<AdminAgent />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
@@ -59,6 +63,8 @@ export default function App() {
         <Route path="/doctors/:id" element={<DoctorProfile />} />
         <Route path="/book" element={<Book />} />
         <Route path="/my" element={<RequireRole role="patient"><My /></RequireRole>} />
+        <Route path="/feedback/:token" element={<FeedbackByLink />} />
+        <Route path="/my/feedback/:id" element={<RequireRole role="patient"><FeedbackSignedIn /></RequireRole>} />
         <Route path="/my/rebook/:id" element={<RequireRole role="patient"><Rebook /></RequireRole>} />
         <Route path="/forbidden" element={<Forbidden />} />
         <Route path="*" element={<NotFound />} />

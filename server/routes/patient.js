@@ -30,7 +30,7 @@ class SlotTaken extends HttpError {
   constructor() { super(409, 'Sorry, that slot was just taken. Please pick another time.', { code: 'slot_taken' }) }
 }
 
-export function patientRoutes({ db, notifier, clock }) {
+export function patientRoutes({ db, notifier, clock, feedback }) {
   const r = Router()
   const bookLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false,
@@ -94,6 +94,21 @@ export function patientRoutes({ db, notifier, clock }) {
     const events = db.prepare('SELECT event, from_status, to_status, actor_role, note, created_at FROM appointment_events WHERE appointment_id = ? ORDER BY id').all(a.id)
     res.json({ appointment: shapeAppointment(full(a.id)), history: events.map((e) => ({ event: e.event, by: e.actor_role, note: e.note, atIst: formatIst(e.created_at) })) })
   })
+
+  // Feedback from Visit history (signed in): the same one-per-visit form as the emailed link, for the patient's own completed visits.
+  r.get('/appointments/:id/feedback', (req, res) => {
+    const a = ownRow(req)
+    const info = feedback.formInfo(a.id)
+    if (!info) throw new HttpError(409, 'Feedback can be left only after a completed visit')
+    res.json({ feedback: info })
+  })
+  r.post('/appointments/:id/feedback', wrap(async (req, res) => {
+    const a = ownRow(req)
+    const input = parse(feedback.ratingBody, req.body ?? {})
+    const out = await feedback.submit(a.id, input)
+    notifier.emit('feedback_received', { appointmentId: a.id })
+    res.status(201).json({ submitted: true, urgent: out.urgent })
+  }))
 
   r.post('/appointments/:id/cancel', wrap(async (req, res) => {
     const a = ownRow(req)
