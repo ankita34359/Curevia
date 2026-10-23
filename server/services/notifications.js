@@ -33,6 +33,7 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
     patient_confirmed: (a) => ({ to: a.email, msg: t.patientConfirmed(a, { link: myLink }) }),
     patient_cancelled: (a) => ({ to: a.email, msg: t.patientCancelled(a, { by: a.status === 'cancelled_by_doctor' ? 'doctor' : 'patient', reason: a.cancel_reason, link: `${config.appUrl}/doctors` }) }),
     doctor_patient_cancelled: (a) => ({ to: a.doctorEmail, msg: t.doctorPatientCancelled(a, { reason: a.cancel_reason, link: `${config.appUrl}/doctor` }) }),
+    patient_lab_report_ready: (a) => ({ to: a.email, msg: t.patientLabReportReady(a, { note: a.lab_note, link: myLink }) }),
     patient_expired: (a) => ({ to: a.email, msg: t.patientRequestExpired(a, { link: `${config.appUrl}/doctors` }) }),
     patient_needs_rebooking: (a) => {
       const options = rebookOptions(db, a, clock().toISOString(), { limit: 3 }).map((o) => ({ ...o, startIst: formatIst(o.startUtc) }))
@@ -44,7 +45,7 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
     return mailer.send({ type, dedupeKey: `email:${type}:${a.id}`, appointmentId: a.id, to, subject: msg.subject, html: msg.html })
   }
 
-  // event: booked | confirmed | cancelled_by_patient | cancelled_by_doctor | needs_rebooking | completed | no_show | rebooked
+  // event: booked | confirmed | cancelled_by_patient | cancelled_by_doctor | needs_rebooking | completed | no_show | rebooked | lab_report_ready
   async function handle(event, { appointmentId } = {}) {
     const a = load(appointmentId)
     if (!a) return
@@ -57,6 +58,7 @@ export function createNotifications({ db, config, mailer, integrations, clock = 
     else if (event === 'cancelled_by_doctor') jobs.push(mail('patient_cancelled', a))
     else if (event === 'cancelled_by_patient') jobs.push(mail('patient_cancelled', a), mail('doctor_patient_cancelled', a))
     else if (event === 'needs_rebooking') jobs.push(mail('patient_needs_rebooking', a))
+    else if (event === 'lab_report_ready') jobs.push(mail('patient_lab_report_ready', a))
     const results = await Promise.allSettled(jobs)
     for (const r of results) if (r.status === 'rejected') console.error(`Notification for "${event}" failed: ${r.reason?.message}`) // never log appointment data
   }

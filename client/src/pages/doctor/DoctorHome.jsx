@@ -5,6 +5,7 @@ import { Alert, Button, EmptyState, Field, Modal, PageHeader, Skeleton, StatusBa
 export function AppointmentCard({ a, onChanged, onError }) {
   const [busy, setBusy] = useState('')
   const [cancelling, setCancelling] = useState(false)
+  const [labDialog, setLabDialog] = useState(false)
   const started = new Date(a.startUtc) <= new Date()
 
   async function run(action) {
@@ -35,8 +36,42 @@ export function AppointmentCard({ a, onChanged, onError }) {
           </>
         )}
       </div>
+      {a.status === 'completed' && (
+        <div className="mt-4">
+          {a.labReport ? (
+            <div className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900" data-testid="lab-ready">
+              <p className="font-semibold"><span aria-hidden="true">🧪</span> Lab report ready <span className="font-normal text-emerald-800">· marked {a.labReport.readyIst}</span></p>
+              {a.labReport.note && <p className="mt-0.5">Note to the patient: {a.labReport.note}</p>}
+            </div>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => setLabDialog(true)}>Mark lab report ready</Button>
+          )}
+        </div>
+      )}
+      {labDialog && <LabReportDialog a={a} onClose={() => setLabDialog(false)} onDone={() => { setLabDialog(false); onChanged() }} />}
       {cancelling && <CancelDialog a={a} onClose={() => setCancelling(false)} onDone={() => { setCancelling(false); onChanged() }} />}
     </div>
+  )
+}
+
+function LabReportDialog({ a, onClose, onDone }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function submit(e) {
+    e.preventDefault(); setBusy(true); setError('')
+    try { await api(`/doctor/appointments/${a.id}/lab-report`, { method: 'POST', body: { note } }); onDone() } catch (err) { setError(err.message); setBusy(false) }
+  }
+  return (
+    <Modal title={`Lab report ready for ${a.patientName}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <Alert tone="error">{error}</Alert>}
+        <p className="text-sm text-ink-soft">The patient gets one email saying the report is ready to collect. This can be done once. No file and no test results go in the email.</p>
+        <Field label="Note for the patient (optional)">{(id) => <Textarea id={id} maxLength={200} placeholder="e.g. Collect from Lab counter, ground floor" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+        <p className="-mt-2 text-xs text-ink-muted">Where to collect it is enough. Please do not write test results here. {note.length}/200</p>
+        <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Not yet</Button><Button type="submit" loading={busy}>Mark lab report ready</Button></div>
+      </form>
+    </Modal>
   )
 }
 

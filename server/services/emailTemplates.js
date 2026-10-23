@@ -118,3 +118,11 @@ export function patientRequestExpired(a, { link }) {
     html: layout('Your request expired', `<p>Hello ${esc(a.patientName)},</p><p>Your request for <strong>${esc(a.startIst)}</strong> with ${esc(a.doctorName)} was not confirmed before that time, so it has expired. We are sorry about that. Nothing is booked for you.</p><p>Please book again and choose a new time.</p>${button(link, 'Book a new appointment')}`)
   }
 }
+
+// The doctor marked the lab report ready. Only the doctor's own short note is included: no results, no file.
+export function patientLabReportReady(a, { note, link }) {
+  return {
+    subject: 'Your lab report is ready',
+    html: layout('Your lab report is ready', `<p>Hello ${esc(a.patientName)},</p><p>Your lab report from your visit on <strong>${esc(a.startIst)}</strong> with ${esc(a.doctorName)} is ready.</p>${note ? `<p><strong>Note from your doctor:</strong> ${esc(note)}</p>` : ''}<p><strong>How to collect it:</strong> please collect your report from the lab. If you are not sure where it is, ask any member of staff. We do not send results by email.</p>${button(link, 'View my appointments')}`)
+  }
+}

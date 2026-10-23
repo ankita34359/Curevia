@@ -20,5 +20,7 @@ export const shapeAppointment = (a) => ({
   email: a.email,
   reason: a.reason,
   cancelReason: a.cancel_reason,
-  createdAt: a.created_at
+  createdAt: a.created_at,
+  // Set once the doctor marked the lab report ready: just the note and the time, never a file or results.
+  labReport: a.lab_ready_at ? { note: a.lab_note || '', readyAt: a.lab_ready_at, readyIst: formatIst(a.lab_ready_at) } : null
 })

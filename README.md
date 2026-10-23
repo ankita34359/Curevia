@@ -28,6 +28,13 @@ Google Sheet and Slack automation through **viaSocket**, and an **AI agent** tha
 4. **Availability & leave**: weekly blocks (day, start, end, slot length) and leave dates. Before saving, Curevia shows how many booked appointments would no longer fit; those become **needs rebooking**.
 5. A doctor only ever sees their own appointments.
 
+### Lab report ready
+On a **Completed** appointment the doctor sees **Mark lab report ready** (Today and Past lists), with an optional note of up to 200 characters (e.g. "Collect from Lab counter, ground floor"). No file and no test results: only the note. It can be done **once** per appointment, and only by the doctor of that appointment (other doctors get 404; patients and the admin cannot). Marking it:
+- emails the patient **"Your lab report is ready"** (doctor, date of the visit, the note, "collect it from the lab") through the email_sender slot, once (key `email:patient_lab_report_ready:<id>`; a failed send is retried on later ticks);
+- adds a Google Sheet row with `event = lab_report_ready` (status stays `completed`);
+- shows a **Lab report ready** badge and the note in the patient's **Visit history**, and the status in the admin **Appointments** list (a "Lab report" column; also on the doctor's card).
+The AI agent has nothing to do with lab reports. The appointment's status does not change. Stored in the `lab_reports` table (migration 6, an added table).
+
 ### Admin
 Signs in with `ADMIN_EMAIL` / `ADMIN_PASSWORD` (the account is kept in sync with those variables on every start).
 - **Dashboard**: cards (today, pending, confirmed, cancelled, needs rebooking), bookings per doctor, appointment list, **CSV download**.
@@ -55,7 +62,7 @@ The admin sets up each slot once on **Admin -> Integrations** (needs `VIASOCKET_
 
 | Slot | App and action (ids read from the live catalog) | Curevia sends |
 | --- | --- | --- |
-| `appointments_sheet` | Google Sheets, **Add New Row to Sheet** (`rowxsuumuqrt`) | `appointment_id, patient_name, age, gender, phone, email, reason, doctor, department, date, time, status, event, at` (IST). One row per booking and per status change; `event` = booked / confirmed / cancelled_by_patient / cancelled_by_doctor / needs_rebooking / completed / no_show / rebooked / expired. |
+| `appointments_sheet` | Google Sheets, **Add New Row to Sheet** (`rowxsuumuqrt`) | `appointment_id, patient_name, age, gender, phone, email, reason, doctor, department, date, time, status, event, at` (IST). One row per booking and per status change; `event` = booked / confirmed / cancelled_by_patient / cancelled_by_doctor / needs_rebooking / completed / no_show / rebooked / expired / lab_report_ready. |
 | `email_sender` | Gmail, **Send Email** (`rowogelpy0h6`) | `to, subject, body` (HTML). Curevia writes every email. |
 | `slack_alert` | Slack, **Send Message** (`row1jrbor`) | `text`, to `#curevia-alerts`. Used for the agent's admin alerts. |
 

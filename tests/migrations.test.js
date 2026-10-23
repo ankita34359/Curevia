@@ -52,7 +52,7 @@ describe('migration 5: the "expired" status', () => {
     expect(dump(db)).toEqual(before) // appointments (all 18 columns, incl. status_before and rebooked_to_id), events, deliveries, agent tables
     expect(db.pragma('foreign_key_check')).toEqual([])
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1) // switched back on
-    expect(db.prepare('SELECT MAX(id) AS v FROM schema_migrations').get().v).toBe(5)
+    expect(db.prepare('SELECT MAX(id) AS v FROM schema_migrations').get().v).toBe(migrations.length) // 5 added "expired", later ones only add tables
     // the self-reference (rebooked_to_id) and the other tables' references are live again
     expect(() => db.prepare('UPDATE appointments SET rebooked_to_id = 9999 WHERE id = ?').run(ids.a1)).toThrow(/FOREIGN KEY/)
     expect(() => db.prepare("INSERT INTO appointment_events (appointment_id, event, actor_role, created_at) VALUES (9999, 'x', 'system', ?)").run(T)).toThrow(/FOREIGN KEY/)
@@ -107,7 +107,7 @@ describe('migration 5: the "expired" status', () => {
       const { db, ids } = dbAtVersion4(file)
       db.close()
       const live = openDb(file)
-      expect(live.prepare('SELECT MAX(id) v FROM schema_migrations').get().v).toBe(5)
+      expect(live.prepare('SELECT MAX(id) v FROM schema_migrations').get().v).toBe(migrations.length)
       expect(live.prepare('SELECT COUNT(*) n FROM appointments').get().n).toBe(3)
       const copy = new Database(`${file}.before-migration-5`, { readonly: true })
       expect(copy.prepare('SELECT MAX(id) v FROM schema_migrations').get().v).toBe(4)
