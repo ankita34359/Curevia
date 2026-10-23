@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Avatar, Button } from './ui.jsx'
 import { rupees } from '../lib/format.js'
+import { RatingBadge } from './Rating.jsx'
 
 export function DoctorCard({ doctor: d, index = 0, selected = false, onSelect, browse = false }) {
   const next = d.nextAvailable
@@ -12,6 +13,7 @@ export function DoctorCard({ doctor: d, index = 0, selected = false, onSelect, b
           <h3 className="truncate text-base font-semibold">{browse ? <Link to={`/doctors/${d.id}`} className="after:absolute after:inset-0 after:rounded-2xl hover:underline">{d.name}</Link> : d.name}</h3>
           <p className="text-sm text-brand-700">{d.department}</p>
           <p className="truncate text-xs text-ink-muted">{d.qualification}</p>
+          <RatingBadge avg={d.ratingAvg} count={d.ratingCount} className="mt-1" />
         </div>
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">

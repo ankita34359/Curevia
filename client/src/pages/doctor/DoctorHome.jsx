@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../../lib/api.js'
 import { Alert, Button, EmptyState, Field, Modal, PageHeader, Skeleton, StatusBadge, Textarea, useLoad } from '../../components/ui.jsx'
+import { RatingBadge, Stars } from '../../components/Rating.jsx'
 
 export function AppointmentCard({ a, onChanged, onError }) {
   const [busy, setBusy] = useState('')
@@ -112,6 +113,38 @@ export function AppointmentList({ scope, empty }) {
   )
 }
 
+// The doctor's own average rating and what patients wrote. No patient names or contact details.
+function FeedbackPanel() {
+  const fb = useLoad(() => api('/doctor/feedback'))
+  const [all, setAll] = useState(false)
+  const d = fb.data
+  const shown = d ? (all ? d.recent : d.recent.slice(0, 5)) : []
+  return (
+    <section aria-labelledby="fb-h" className="mt-10" data-testid="doctor-feedback">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 id="fb-h" className="text-lg font-semibold">Patient feedback</h2>
+        {d?.count > 0 && <p className="flex items-center gap-2 text-sm"><Stars value={d.average} className="text-lg" /><RatingBadge avg={d.average} count={d.count} /></p>}
+      </div>
+      {fb.error && <Alert tone="error">{fb.error}</Alert>}
+      {fb.loading ? <Skeleton className="h-24" /> : d?.count === 0 ? (
+        <EmptyState title="No feedback yet" icon="⭐">After a visit you mark as completed, the patient is asked how it went. Their rating and comment will appear here.</EmptyState>
+      ) : (
+        <>
+          <ul className="space-y-2">
+            {shown.map((f) => (
+              <li key={f.id} className="card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2"><Stars value={f.rating} className="text-lg" /><span className="font-semibold tabular-nums">{f.rating}/5</span></span><span className="text-xs text-ink-muted">Visit {f.visitIst}</span></div>
+                {f.comment ? <p className="mt-1.5 whitespace-pre-wrap text-sm">“{f.comment}”</p> : <p className="mt-1.5 text-sm text-ink-muted">No comment.</p>}
+              </li>
+            ))}
+          </ul>
+          {d?.recent.length > 5 && <Button size="sm" variant="ghost" className="mt-2" onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${d.recent.length}`}</Button>}
+        </>
+      )}
+    </section>
+  )
+}
+
 export default function DoctorHome() {
   return (
     <div>
@@ -126,6 +159,7 @@ export default function DoctorHome() {
           <AppointmentList scope="pending" empty={{ title: 'No requests waiting', icon: '✅', text: "You're all caught up." }} />
         </section>
       </div>
+      <FeedbackPanel />
     </div>
   )
 }

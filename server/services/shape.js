@@ -22,5 +22,6 @@ export const shapeAppointment = (a) => ({
   cancelReason: a.cancel_reason,
   createdAt: a.created_at,
   // Set once the doctor marked the lab report ready: just the note and the time, never a file or results.
+  feedbackRating: a.feedback_rating ?? null, // the rating the patient gave this visit, if any (the comment is never in lists)
   labReport: a.lab_ready_at ? { note: a.lab_note || '', readyAt: a.lab_ready_at, readyIst: formatIst(a.lab_ready_at) } : null
 })

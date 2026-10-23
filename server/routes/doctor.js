@@ -19,7 +19,7 @@ const cancelBody = z.object({ reason: z.string().trim().min(3, 'Please give a sh
 
 class Rollback extends Error {}
 
-export function doctorRoutes({ db, notifier, clock }) {
+export function doctorRoutes({ db, notifier, clock, feedback }) {
   const r = Router()
 
   // Every handler works on the signed-in doctor's own row; ids in URLs only ever select among their appointments.
@@ -35,6 +35,11 @@ export function doctorRoutes({ db, notifier, clock }) {
 
   r.get('/me', (req, res) => {
     res.json({ doctor: shapeDoctor(getDoctor(db, req.doctor.id)), availability: availabilityRows(req.doctor.id), leaves: leaveRows(req.doctor.id) })
+  })
+
+  // The doctor's own rating and comments. No patient name, phone or email.
+  r.get('/feedback', (req, res) => {
+    res.json(feedback.forDoctor(req.doctor.id))
   })
 
   // ---- appointments ----

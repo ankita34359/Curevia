@@ -65,9 +65,10 @@ export function releaseAllUpcoming(db, doctorId, { actorRole, actorId = null, no
 // Appointment joined with doctor / department names, the shape used by lists and emails.
 export const APPT_SELECT = `
   SELECT a.*, du.name AS doctor_name, dep.name AS department, dep.id AS department_id,
-         lr.note AS lab_note, lr.created_at AS lab_ready_at
+         lr.note AS lab_note, lr.created_at AS lab_ready_at, fb.rating AS feedback_rating
   FROM appointments a
   JOIN doctors d ON d.id = a.doctor_id
   JOIN users du ON du.id = d.user_id
   JOIN departments dep ON dep.id = d.department_id
-  LEFT JOIN lab_reports lr ON lr.appointment_id = a.id`
+  LEFT JOIN lab_reports lr ON lr.appointment_id = a.id
+  LEFT JOIN feedback fb ON fb.appointment_id = a.id`

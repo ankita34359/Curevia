@@ -8,7 +8,7 @@ const LOCK_TTL_MS = 600000 // a lock this old is treated as dead (a stuck run mu
 // starts while another is still going returns immediately without doing anything (one lock, one run at a time).
 // `start()` is what the schedule uses: it returns at once and the work carries on in the background.
 // `run()` does the same work and waits for it (the admin's "Check now" and the tests).
-export function createTick({ db, config, mailer, notifications, agent, dailySchedule = null, clock = () => new Date(), nowMs = () => Date.now(), budgetMs = TIME_BUDGET_MS, lockTtlMs = LOCK_TTL_MS }) {
+export function createTick({ db, config, mailer, notifications, agent, dailySchedule = null, feedback = null, clock = () => new Date(), nowMs = () => Date.now(), budgetMs = TIME_BUDGET_MS, lockTtlMs = LOCK_TTL_MS }) {
   let lock = null // { since } while a run is going
 
   function acquire() {
@@ -24,10 +24,11 @@ export function createTick({ db, config, mailer, notifications, agent, dailySche
     const timeUp = () => nowMs() >= deadline
     const reminders = await runReminders({ db, config, mailer, now, timeUp })
     const daily = !dailySchedule ? null : timeUp() ? { skipped: 'out of time' } : await dailySchedule.run({ now, timeUp })
+    const feedbackSummary = !feedback ? null : timeUp() ? { skipped: 'out of time' } : await feedback.run({ now, timeUp })
     const retried = timeUp() ? 0 : await notifications.retryFailed({ timeUp })
     const agentSummary = timeUp() ? { skipped: 'out of time' } : await agent.run({ timeUp })
     purgeExpiredSessions(db, now)
-    return { at: now.toISOString(), reminders, daily, retried, agent: agentSummary, ...(timeUp() ? { cutShort: true } : {}) }
+    return { at: now.toISOString(), reminders, daily, feedback: feedbackSummary, retried, agent: agentSummary, ...(timeUp() ? { cutShort: true } : {}) }
   }
 
   async function run() {

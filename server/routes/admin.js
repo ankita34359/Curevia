@@ -40,7 +40,7 @@ function queryAppointments(db, q, limit = 1000) {
   return db.prepare(`${APPT_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.start_utc DESC LIMIT ${limit}`).all(...args)
 }
 
-export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, integrations, tick, dailySchedule }) {
+export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, integrations, tick, dailySchedule, feedback }) {
   const r = Router()
 
   // ---- dashboard ----
@@ -86,6 +86,12 @@ export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, in
   r.post('/daily-schedule/send-now', wrap(async (_req, res) => {
     res.json({ result: await dailySchedule.run({ now: clock(), force: true }) })
   }))
+
+  // ---- patient feedback: every feedback with the AI's category (or the rule's), filters, and the average rating per doctor ----
+  r.get('/feedback', (req, res) => {
+    const q = parse(z.object({ category: z.enum(['praise', 'suggestion', 'complaint', 'urgent', 'unsorted']).optional(), doctorId: z.coerce.number().int().positive().optional() }), req.query)
+    res.json({ feedback: feedback.adminList(q), ...feedback.averages() })
+  })
 
   // ---- appointments (list + CSV) ----
   r.get('/appointments', (req, res) => {
