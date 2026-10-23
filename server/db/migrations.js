@@ -287,5 +287,24 @@ CREATE TABLE feedback_requests (
   created_at TEXT NOT NULL
 );
 `
+  },
+  {
+    id: 8,
+    name: 'ai_booking_log',
+    // "Book with AI": one row per suggestion, saying which path was used (AI or keyword fallback). It deliberately holds no
+    // patient text, no patient id and no personal data. An added table: nothing existing is touched.
+    sql: `
+CREATE TABLE ai_booking_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  path TEXT NOT NULL CHECK (path IN ('ai','fallback')),
+  fallback_reason TEXT,
+  department_id INTEGER,
+  urgency TEXT,
+  emergency INTEGER NOT NULL DEFAULT 0,
+  options_shown INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX ix_ai_booking_created ON ai_booking_log(created_at);
+`
   }
 ]

@@ -18,6 +18,7 @@ export function PatientLayout() {
           <nav className="flex flex-1 items-center gap-1" aria-label="Main">
             <NavLink to="/" end className={navLink}>Home</NavLink>
             <NavLink to="/doctors" className={navLink}>Find a doctor</NavLink>
+            {user?.role === 'patient' && <NavLink to="/book-with-ai" className={navLink}>Book with AI</NavLink>}
             {user?.role === 'patient' && <NavLink to="/my" className={navLink}>My appointments</NavLink>}
           </nav>
           <EmergencyBadge />

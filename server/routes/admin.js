@@ -258,6 +258,7 @@ export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, in
     res.json({
       openCases: view, notLookedAtYet: waiting, decisions, aiConfigured: viasocket.configured, demoMinutes: config.agent.demoMinutes || null,
       maxOffers: LIMITS.maxOffers,
+      aiBooking: Object.fromEntries([['ai', 0], ['fallback', 0], ...db.prepare('SELECT path, COUNT(*) n FROM ai_booking_log GROUP BY path').all().map((x) => [x.path, x.n])]),
       quietHours: { enabled: quietEnabled, activeNow: quietEnabled && isQuietNow(nowIso), resumeAtIst: quietEnabled && isQuietNow(nowIso) ? fmt(nextQuietEnd(nowIso)) : null }
     })
   })

@@ -8,6 +8,7 @@ import { APPT_SELECT, changeStatus, getAppointment, logEvent } from '../services
 import { findBookableSlot, overlapsExisting, rebookOptions } from '../services/scheduling.js'
 import { shapeAppointment } from '../services/shape.js'
 import { formatIst } from '../lib/time.js'
+import { textBody } from '../services/bookingAssistant.js'
 
 const bookBody = z.object({
   doctorId: z.number().int().positive(),
@@ -30,13 +31,25 @@ class SlotTaken extends HttpError {
   constructor() { super(409, 'Sorry, that slot was just taken. Please pick another time.', { code: 'slot_taken' }) }
 }
 
-export function patientRoutes({ db, notifier, clock, feedback }) {
+export function patientRoutes({ db, notifier, clock, feedback, bookingAssistant }) {
   const r = Router()
   const bookLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false,
     keyGenerator: (req) => `patient-${req.user.id}`,
     handler: (_req, res) => res.status(429).json({ error: 'Too many booking attempts. Please try again later.' })
   })
+
+  // "Book with AI": suggests a department and up to 3 real free slots from the patient's own words. It creates nothing:
+  // booking still happens on the existing booking form. 10 suggestions per patient per hour (each one is an AI call).
+  const aiLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: (req) => `book-ai-${req.user.id}`,
+    handler: (_req, res) => res.status(429).json({ error: 'You have used your 10 Book with AI suggestions for this hour. Please try again later, or use Find a doctor.', code: 'rate_limited' })
+  })
+  r.post('/book-with-ai', aiLimiter, wrap(async (req, res) => {
+    const { text } = parse(textBody, req.body ?? {})
+    res.json({ suggestion: await bookingAssistant.suggest(text) })
+  }))
 
   const full = (id) => db.prepare(`${APPT_SELECT} WHERE a.id = ?`).get(id)
   const ownRow = (req) => {

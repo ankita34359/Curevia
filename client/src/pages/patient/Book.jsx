@@ -6,6 +6,7 @@ import { Alert, Avatar, Button, Field, Input, Select, Skeleton, Textarea, useLoa
 import { DoctorCard, DoctorCardSkeleton } from '../../components/DoctorCard.jsx'
 import { SlotPicker } from '../../components/SlotPicker.jsx'
 import { iconFor, rupees } from '../../lib/format.js'
+import { clearAiReason, readAiReason } from '../../lib/aiBooking.js'
 
 const STEPS = ['Choose doctor', 'Pick a slot', 'Your details']
 
@@ -126,7 +127,7 @@ export default function Book() {
 }
 
 function Details({ doctor, slot, user, onBack, onBooked, onTaken }) {
-  const [f, setF] = useState({ name: user?.name || '', age: '', gender: '', phone: '', email: user?.email || '', reason: '' })
+  const [f, setF] = useState({ name: user?.name || '', age: '', gender: '', phone: '', email: user?.email || '', reason: readAiReason(doctor.id, slot.startUtc) })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
@@ -138,6 +139,7 @@ function Details({ doctor, slot, user, onBack, onBooked, onTaken }) {
     setBusy(true); setError('')
     try {
       const res = await api('/patient/appointments', { method: 'POST', body: { doctorId: doctor.id, startUtc: slot.startUtc, name: f.name, age: Number(f.age), gender: f.gender, phone: f.phone, email: f.email, reason: f.reason } })
+      clearAiReason()
       onBooked(res.appointment)
     } catch (err) {
       setError(err.message)

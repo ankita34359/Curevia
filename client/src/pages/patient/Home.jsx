@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api.js'
+import { useAuth } from '../../lib/auth.jsx'
 import { Button, useLoad } from '../../components/ui.jsx'
 import { DoctorCard, DoctorCardSkeleton } from '../../components/DoctorCard.jsx'
 import { iconFor } from '../../lib/format.js'
@@ -38,6 +39,7 @@ function SearchBar() {
 }
 
 export default function Home() {
+  const { user } = useAuth()
   const deps = useLoad(() => api('/public/departments'))
   const featured = useLoad(() => api('/public/doctors?featured=1'))
   return (
@@ -50,6 +52,12 @@ export default function Home() {
           <h1 className="mx-auto mt-3 max-w-3xl animate-fade-up text-5xl font-bold leading-tight tracking-tight" style={{ animationDelay: '60ms' }}>Find the right doctor and book a time in minutes</h1>
           <p className="mx-auto mt-4 max-w-xl animate-fade-up text-lg text-brand-50" style={{ animationDelay: '120ms' }}>See real free slots, request your visit, and we'll keep you updated by email.</p>
           <div className="animate-fade-up text-ink" style={{ animationDelay: '180ms' }}><SearchBar /></div>
+          {user?.role === 'patient' && (
+            <div className="mt-5 animate-fade-up" style={{ animationDelay: '240ms' }}>
+              <Link to="/book-with-ai"><Button size="lg" className="!bg-white !text-brand-800 hover:!bg-brand-50" data-testid="book-with-ai-button"><span aria-hidden="true">✨</span> Book with AI</Button></Link>
+              <p className="mt-2 text-sm text-brand-50">Describe what you need and we suggest a department and free slots.</p>
+            </div>
+          )}
         </div>
       </section>
 

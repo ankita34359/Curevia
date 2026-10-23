@@ -12,6 +12,7 @@ import AdminDoctors from './pages/admin/AdminDoctors.jsx'
 import AdminAgent from './pages/admin/AdminAgent.jsx'
 import AdminFeedback from './pages/admin/AdminFeedback.jsx'
 import { FeedbackByLink, FeedbackSignedIn } from './pages/patient/Feedback.jsx'
+import BookWithAI from './pages/patient/BookWithAI.jsx'
 import AdminIntegrations from './pages/admin/AdminIntegrations.jsx'
 import AdminDepartments from './pages/admin/AdminDepartments.jsx'
 import DoctorHome, { DoctorUpcoming } from './pages/doctor/DoctorHome.jsx'
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/doctors" element={<Doctors />} />
         <Route path="/doctors/:id" element={<DoctorProfile />} />
         <Route path="/book" element={<Book />} />
+        <Route path="/book-with-ai" element={<RequireRole role="patient"><BookWithAI /></RequireRole>} />
         <Route path="/my" element={<RequireRole role="patient"><My /></RequireRole>} />
         <Route path="/feedback/:token" element={<FeedbackByLink />} />
         <Route path="/my/feedback/:id" element={<RequireRole role="patient"><FeedbackSignedIn /></RequireRole>} />
