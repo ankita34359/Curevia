@@ -202,5 +202,44 @@ CREATE TABLE agent_log (
 );
 CREATE INDEX ix_agent_log_appt ON agent_log(appointment_id, id);
 `
+  },
+  {
+    id: 5,
+    name: 'expired_status',
+    // A pending request whose time has passed becomes "expired". SQLite cannot change a CHECK, so the appointments table is
+    // rebuilt (the documented 12-step way: new table, copy, drop, rename). It must run with foreign keys OFF, otherwise dropping
+    // the old table would cascade-delete appointment_events; migrate() switches them off, runs foreign_key_check, and backs the file up first.
+    rebuildsTables: true,
+    sql: `
+CREATE TABLE appointments_new (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES users(id),
+  doctor_id INTEGER NOT NULL REFERENCES doctors(id),
+  start_utc TEXT NOT NULL,
+  end_utc TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','confirmed','completed','no_show','cancelled_by_patient','cancelled_by_doctor','needs_rebooking','rebooked','expired')),
+  patient_name TEXT NOT NULL,
+  age INTEGER NOT NULL,
+  gender TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  cancel_reason TEXT,
+  rebooked_to_id INTEGER REFERENCES appointments(id),
+  confirmed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  status_before TEXT
+);
+INSERT INTO appointments_new (id, patient_id, doctor_id, start_utc, end_utc, status, patient_name, age, gender, phone, email, reason, cancel_reason, rebooked_to_id, confirmed_at, created_at, updated_at, status_before)
+  SELECT id, patient_id, doctor_id, start_utc, end_utc, status, patient_name, age, gender, phone, email, reason, cancel_reason, rebooked_to_id, confirmed_at, created_at, updated_at, status_before FROM appointments;
+DROP TABLE appointments;
+ALTER TABLE appointments_new RENAME TO appointments;
+CREATE INDEX ix_appt_doctor_start ON appointments(doctor_id, start_utc);
+CREATE INDEX ix_appt_patient ON appointments(patient_id, start_utc);
+CREATE INDEX ix_appt_status ON appointments(status);
+CREATE UNIQUE INDEX ux_appt_slot ON appointments(doctor_id, start_utc)
+  WHERE status IN ('pending','confirmed','completed','no_show');
+`
   }
 ]

@@ -76,11 +76,12 @@ const BADGE = {
   cancelled_by_patient: 'bg-red-100 text-red-800',
   cancelled_by_doctor: 'bg-red-100 text-red-800',
   needs_rebooking: 'bg-orange-100 text-orange-900',
-  rebooked: 'bg-slate-100 text-slate-700'
+  rebooked: 'bg-slate-100 text-slate-700',
+  expired: 'bg-slate-200 text-slate-700'
 }
 const STATUS_LABEL = {
   pending: 'Pending', confirmed: 'Confirmed', completed: 'Completed', no_show: 'No-show',
-  cancelled_by_patient: 'Cancelled by patient', cancelled_by_doctor: 'Cancelled by doctor', needs_rebooking: 'Needs rebooking', rebooked: 'Rebooked'
+  cancelled_by_patient: 'Cancelled by patient', cancelled_by_doctor: 'Cancelled by doctor', needs_rebooking: 'Needs rebooking', rebooked: 'Rebooked', expired: 'Expired'
 }
 export const statusLabel = (s) => STATUS_LABEL[s] || s
 export function StatusBadge({ status }) {

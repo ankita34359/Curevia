@@ -2,14 +2,15 @@ import { HttpError } from '../lib/http.js'
 import { appointmentFits } from './scheduling.js'
 
 export const TRANSITIONS = {
-  pending: ['confirmed', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking', 'rebooked'],
+  pending: ['confirmed', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking', 'rebooked', 'expired'],
   confirmed: ['completed', 'no_show', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking'],
   needs_rebooking: ['rebooked', 'cancelled_by_patient'],
   completed: [],
   no_show: [],
   cancelled_by_patient: [],
   cancelled_by_doctor: [],
-  rebooked: []
+  rebooked: [],
+  expired: [] // a pending request whose time passed without the doctor confirming it
 }
 export const OPEN_FOR_DOCTOR = ['pending', 'confirmed']
 

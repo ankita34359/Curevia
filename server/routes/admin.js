@@ -1,3 +1,5 @@
+import { LIMITS } from '../services/agent/policy.js'
+import { isQuietNow, nextQuietEnd } from '../services/agent/quiet.js'
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import { z } from 'zod'
@@ -20,7 +22,7 @@ const deptBody = z.object({
   active: z.boolean().optional()
 })
 
-export const APPT_STATUSES = ['pending', 'confirmed', 'completed', 'no_show', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking', 'rebooked']
+export const APPT_STATUSES = ['pending', 'confirmed', 'completed', 'no_show', 'cancelled_by_patient', 'cancelled_by_doctor', 'needs_rebooking', 'rebooked', 'expired']
 const listQuery = z.object({
   from: z.string().refine(isDateStr, 'Use YYYY-MM-DD').optional(),
   to: z.string().refine(isDateStr, 'Use YYYY-MM-DD').optional(),
@@ -236,7 +238,13 @@ export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, in
       id: d.id, appointmentId: d.appointment_id, caseType: d.case_type, source: d.source, action: d.action, reason: d.reason, executed: !!d.executed, outcome: d.outcome, aiError: d.ai_error,
       params: d.params ? JSON.parse(d.params) : null, atIst: fmt(d.created_at)
     }))
-    res.json({ openCases: view, notLookedAtYet: waiting, decisions, aiConfigured: viasocket.configured, demoMinutes: config.agent.demoMinutes || null })
+    const quietEnabled = config.agent.quietHours !== false
+    const nowIso = now.toISOString()
+    res.json({
+      openCases: view, notLookedAtYet: waiting, decisions, aiConfigured: viasocket.configured, demoMinutes: config.agent.demoMinutes || null,
+      maxOffers: LIMITS.maxOffers,
+      quietHours: { enabled: quietEnabled, activeNow: quietEnabled && isQuietNow(nowIso), resumeAtIst: quietEnabled && isQuietNow(nowIso) ? fmt(nextQuietEnd(nowIso)) : null }
+    })
   })
 
   // Runs the same job the 5-minute schedule runs.

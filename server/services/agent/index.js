@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import { formatIst, formatIstTime, istDate } from '../../lib/time.js'
-import { APPT_SELECT } from '../appointments.js'
+import { APPT_SELECT, changeStatus } from '../appointments.js'
 import { deliver } from '../deliveries.js'
 import { findBookableSlot, rebookOptions } from '../scheduling.js'
 import * as t from '../emailTemplates.js'
 import { fixedRules, limitsFor, nextStep, span, validateDecision } from './policy.js'
+import { quietHold } from './quiet.js'
 import { DECISION_SCHEMA, buildSystemPrompt } from './prompt.js'
 
 const MAX_CASES_PER_TICK = 8
@@ -68,8 +69,14 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     const n = (action) => done.find((d) => d.action === action)?.n || 0
     const since = (action) => { const l = done.find((d) => d.action === action)?.last; return l ? minutes(nowMs - new Date(l).getTime()) : null }
     const options = rebookOptions(db, a, nowIso, { limit: 8, perDoctor: 4, leadMinutes: 60 }).map((o, i) => ({ id: i + 1, doctorId: o.doctorId, doctorName: o.doctorName, startUtc: o.startUtc, startIst: formatIst(o.startUtc), sameDoctor: o.doctorId === a.doctor_id }))
+    // A fingerprint of the free slots the agent could offer, and of the ones at its last offer: same list = nothing new to offer.
+    const optionsKey = options.map((o) => `${o.doctorId}@${o.startUtc}`).sort().join('|')
+    let lastOfferKey = null
+    try { lastOfferKey = JSON.parse(db.prepare("SELECT params FROM agent_log WHERE appointment_id = ? AND case_type = ? AND action = 'offer_slots_to_patient' AND executed = 1 ORDER BY id DESC LIMIT 1").get(c.id, c.caseType)?.params || 'null')?.optionsKey || null } catch { /* an old row without a key */ }
     return {
       appt: a,
+      optionsKey,
+      lastOfferKey,
       caseType: c.caseType,
       id: c.id,
       nowIso,
@@ -92,6 +99,7 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     minutes_since_case_started: f.minutesSinceCaseStart,
     doctor_cancel_reason: f.caseType === 'needs_rebooking' ? f.appt.cancel_reason || null : null,
     already_done: { doctor_reminders_sent: f.counts.doctorReminders, patient_reminders_sent: f.counts.patientReminders, admin_alerted: f.counts.adminAlerts > 0, slot_offers_sent: f.counts.offers, minutes_since_last_doctor_reminder: f.minutesSinceLast.remind_doctor, minutes_since_last_patient_reminder: f.minutesSinceLast.remind_patient, minutes_since_last_slot_offer: f.minutesSinceLast.offer_slots_to_patient },
+    free_slots_changed_since_last_offer: f.counts.offers ? f.lastOfferKey !== f.optionsKey : null,
     slot_options: f.options.map((o) => ({ id: o.id, doctor: o.doctorName, time_ist: o.startIst, same_doctor_as_booked: o.sameDoctor }))
   })
 
@@ -153,7 +161,7 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
         if (!stillFree.length) return { done: false, outcome: 'None of the chosen slots is free any more', refused: true }
         const m = t.patientOfferSlots(a, { note: d.note, options: stillFree, link: link(f.id) })
         const res = to(await mailer.send({ type: 'agent_offer_slots', dedupeKey: `email:agent_offer_slots:${f.id}:${f.counts.offers + 1}`, appointmentId: f.id, to: a.email, subject: m.subject, html: m.html }))
-        return { ...res, params: { slots: stillFree.map((o) => `${o.startIst} ${o.doctorName}`) } }
+        return { ...res, params: { slots: stillFree.map((o) => `${o.startIst} ${o.doctorName}`), optionsKey: f.optionsKey } }
       }
     }
     return { done: true, outcome: 'ok' }
@@ -191,6 +199,47 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     })
   }
 
+  const EMAIL_STEP = { remind_doctor: 'remind the doctor', remind_patient: 'remind the patient', offer_slots_to_patient: 'offer other slots to the patient' }
+
+  // Quiet hours: patient and doctor emails wait until 8 AM IST (unless the appointment is under 2 hours away). The step is
+  // written down with the time it will be decided again; Slack alerts and waiting are never held.
+  function recordHold(c, decision, hold, { source, aiError }) {
+    setCase(c.id, c.caseType, { nextCheckAt: hold.until })
+    logRow(c, {
+      source: 'guard', action: 'hold_quiet_hours', executed: 1, aiError,
+      reason: `Quiet hours: "${EMAIL_STEP[decision.action]}" is held until ${hold.untilText}. ${hold.why} The decision is made again then, with fresh facts.`,
+      params: { heldAction: decision.action, chosenBy: source, resumeAtIst: hold.untilText, nextCheckAtIst: hold.untilText },
+      outcome: `held; next check ${hold.untilText}`
+    })
+  }
+
+  // A pending request whose appointment time has passed can no longer be confirmed: mark it expired, tell the patient to
+  // book again, add the sheet row, alert the admin, close the case and write the decision.
+  async function expireStale(nowIso, summary, timeUp) {
+    const stale = db.prepare("SELECT id, start_utc FROM appointments WHERE status = 'pending' AND start_utc <= ? ORDER BY start_utc LIMIT 50").all(nowIso)
+    for (const { id, start_utc: startUtc } of stale) {
+      if (timeUp()) break
+      const c = { id, caseType: 'pending' }
+      db.transaction(() => {
+        changeStatus(db, id, 'expired', { actorRole: 'system', note: 'The appointment time passed while the request was still pending', now: clock() })
+        if (!caseRow(id, 'pending')) db.prepare('INSERT INTO agent_cases (appointment_id, case_type, created_at) VALUES (?,?,?)').run(id, 'pending', nowIso)
+        setCase(id, 'pending', { closedAt: nowIso, closedReason: 'expired', nextCheckAt: null })
+      })()
+      let sent
+      try { sent = await notifications.expired(id) } catch (e) { sent = null; console.error(`Expiry notifications failed: ${e.message}`) }
+      // Failed emails and sheet rows are tried again on later ticks; a failed Slack alert is not.
+      const shown = (st, retried = true) => (!st ? 'not sent' : st.startsWith('failed') ? `failed${retried ? ' (retried later)' : ''}` : st)
+      logRow(c, {
+        source: 'guard', action: 'expire_request', executed: 1,
+        reason: `The appointment time (${formatIst(startUtc)} IST) passed and the doctor never confirmed the request, so it was marked expired and the case closed. The patient is asked to book again.`,
+        params: sent ? { patientEmail: sent.email, sheetRow: sent.sheet, adminAlert: sent.slack } : null,
+        outcome: sent ? `patient email ${shown(sent.email)}; sheet row ${shown(sent.sheet)}; admin alert ${shown(sent.slack, false)}` : 'marked expired; notifications could not be sent'
+      })
+      summary.expired++
+      summary.decisions++
+    }
+  }
+
   async function handleCase(c, summary) {
     const nowIso = clock().toISOString()
     let f = buildFacts(c, nowIso)
@@ -217,6 +266,15 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     summary.decisions++
     if (source === 'fallback') summary.fallbacks++
 
+    if (EMAIL_STEP[decision.action]) {
+      const hold = quietHold(nowIso, f.appt.start_utc, { enabled: config.agent?.quietHours !== false })
+      if (hold.hold) {
+        recordHold(c, decision, hold, { source, aiError })
+        summary.waits++
+        return
+      }
+    }
+
     if (decision.action === 'wait') {
       recordWait(c, f, { source, reason: decision.reason, waitMinutes: decision.waitMinutes, aiError })
       summary.waits++
@@ -242,9 +300,10 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
   async function run({ timeUp = () => false } = {}) {
     if (running) return { skipped: 'already running' }
     running = true
-    const summary = { cases: 0, decisions: 0, actions: 0, waits: 0, notDue: 0, notDelivered: 0, fallbacks: 0, closed: 0 }
+    const summary = { cases: 0, decisions: 0, actions: 0, waits: 0, notDue: 0, notDelivered: 0, fallbacks: 0, closed: 0, expired: 0 }
     try {
       const nowIso = clock().toISOString()
+      await expireStale(nowIso, summary, timeUp)
       const open = openCases(nowIso)
       closeResolved(open)
       let handled = 0
@@ -262,5 +321,5 @@ export function createAgent({ db, config, viasocket, mailer, notifications, cloc
     return summary
   }
 
-  return { run, limits }
+  return { run, limits, quietHoursOn: config.agent?.quietHours !== false }
 }

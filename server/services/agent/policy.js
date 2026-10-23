@@ -6,7 +6,7 @@ export const LIMITS = {
   maxDoctorReminders: 2,
   maxPatientReminders: 2,
   maxAdminAlerts: 1, // at most once per case
-  maxOffers: 3,
+  maxOffers: 2, // slot offers per case (the first, and one more only if the free slots changed)
   maxSlotsPerOffer: 3,
   minGapMinutes: { remind_doctor: 60, remind_patient: 60, offer_slots_to_patient: 120 },
   waitMin: 5,
@@ -80,7 +80,9 @@ export function validateDecision(raw, facts, limits = LIMITS) {
       if (c.adminAlerts >= LIMITS.maxAdminAlerts) return { ok: false, why: 'the admin was already alerted for this case' }
       break
     case 'offer_slots_to_patient': {
-      if (c.offers >= LIMITS.maxOffers) return { ok: false, why: `already offered slots ${LIMITS.maxOffers} times` }
+      if (c.offers >= limits.maxOffers) return { ok: false, why: `already offered slots ${limits.maxOffers} times` }
+      // The same list is never offered twice: a new offer needs the free slots to have changed since the last one.
+      if (c.offers >= 1 && facts.lastOfferKey && facts.optionsKey && facts.lastOfferKey === facts.optionsKey) return { ok: false, why: 'the free slots have not changed since the last offer' }
       if (!gapOk(facts, 'offer_slots_to_patient', limits)) return { ok: false, why: `slots were offered less than ${span(limits.minGapMinutes.offer_slots_to_patient)} ago` }
       const ids = [...new Set(Array.isArray(raw.slotOptionIds) ? raw.slotOptionIds : [])]
       if (!ids.length) return { ok: false, why: 'no slots chosen' }
@@ -119,7 +121,7 @@ export function fixedRules(facts, limits = LIMITS) {
 
   if (caseType === 'pending') {
     if (age >= limits.alertAdminAfterMin && c.adminAlerts < 1) return pick('alert_admin', `still pending after ${ago(age)}`)
-    if (facts.minutesUntilAppointment < limits.offerWhenWithinMin && age >= limits.remindDoctorAfterMin && c.offers < 1 && facts.options.length && ok('offer_slots_to_patient'))
+    if (facts.minutesUntilAppointment < limits.offerWhenWithinMin && age >= limits.remindDoctorAfterMin && c.offers < limits.maxOffers && facts.options.length && ok('offer_slots_to_patient'))
       return pick('offer_slots_to_patient', 'appointment is less than 12 hours away and still pending', { options: topOptions() })
     if (age >= limits.remindDoctorAfterMin && c.doctorReminders < 1 && ok('remind_doctor')) return pick('remind_doctor', `doctor has not confirmed after ${span(limits.remindDoctorAfterMin)}`)
     if (age >= 2 * limits.remindDoctorAfterMin && c.doctorReminders < 2 && ok('remind_doctor')) return pick('remind_doctor', `doctor still has not confirmed after ${span(2 * limits.remindDoctorAfterMin)}`)
@@ -127,7 +129,7 @@ export function fixedRules(facts, limits = LIMITS) {
     return pick('wait', 'nothing is due yet', { waitMinutes: limits.defaultWaitMin })
   }
   // needs_rebooking
-  if (c.offers < 1 && facts.options.length && ok('offer_slots_to_patient')) return pick('offer_slots_to_patient', 'offering the earliest free slots', { options: topOptions() })
+  if (c.offers < limits.maxOffers && facts.options.length && ok('offer_slots_to_patient')) return pick('offer_slots_to_patient', facts.counts.offers ? 'the free slots have changed since the last offer' : 'offering the earliest free slots', { options: topOptions() })
   if (age >= limits.alertAdminAfterMin && c.adminAlerts < 1) return pick('alert_admin', `patient still has no new slot after ${ago(age)}`)
   if (!facts.options.length && age >= limits.remindDoctorAfterMin && c.adminAlerts < 1) return pick('alert_admin', 'no free slots to offer, a person needs to help')
   if (c.offers >= 1 && c.patientReminders < limits.maxPatientReminders && (facts.minutesSinceLast.offer_slots_to_patient ?? 0) >= limits.patientFollowUpAfterMin && ok('remind_patient')) return pick('remind_patient', 'patient has not picked a new slot')

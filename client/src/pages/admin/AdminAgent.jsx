@@ -4,7 +4,8 @@ import { Alert, Button, EmptyState, PageHeader, Skeleton, useLoad } from '../../
 
 const ACTION = {
   remind_doctor: ['Reminded the doctor', '📧'], alert_admin: ['Alerted the admin', '🚨'], offer_slots_to_patient: ['Offered slots to the patient', '🗓️'],
-  remind_patient: ['Reminded the patient', '📧'], wait: ['Waited', '⏳'], close_case: ['Closed the case', '✅']
+  remind_patient: ['Reminded the patient', '📧'], wait: ['Waited', '⏳'], close_case: ['Closed the case', '✅'],
+  hold_quiet_hours: ['Held for quiet hours', '🌙'], expire_request: ['Expired the request', '⌛']
 }
 const SOURCE = { ai: ['AI', 'bg-sky-100 text-sky-900'], fallback: ['Fixed rules', 'bg-accent-100 text-amber-900'], guard: ['Safety rule', 'bg-slate-200 text-slate-800'] }
 const CASE = { pending: 'Waiting for doctor', needs_rebooking: 'Needs a new slot' }
@@ -26,13 +27,19 @@ export default function AdminAgent() {
       {error && <Alert tone="error" className="mb-4">{error}</Alert>}
       {result && (
         <Alert tone="success" className="mb-4">
-          {result.skipped ? 'A check was already running.' : `Checked ${result.agent.cases} case${result.agent.cases === 1 ? '' : 's'}: ${result.agent.actions} action${result.agent.actions === 1 ? '' : 's'} taken${result.agent.waits ? `, ${result.agent.waits} set to wait (the reason and next step are listed below)` : ''}${result.agent.notDue ? `, ${result.agent.notDue} not due for another look yet` : ''}${result.agent.notDelivered ? `, ${result.agent.notDelivered} could not be delivered (see below)` : ''}${result.agent.fallbacks ? `, ${result.agent.fallbacks} decided by fixed rules because the AI was unavailable` : ''}. Reminders sent: ${result.reminders.sent}.`}
+          {result.skipped ? 'A check was already running.' : `Checked ${result.agent.cases} case${result.agent.cases === 1 ? '' : 's'}: ${result.agent.actions} action${result.agent.actions === 1 ? '' : 's'} taken${result.agent.waits ? `, ${result.agent.waits} set to wait or held for quiet hours (the reason and next step are listed below)` : ''}${result.agent.expired ? `, ${result.agent.expired} expired request${result.agent.expired === 1 ? '' : 's'} closed` : ''}${result.agent.notDue ? `, ${result.agent.notDue} not due for another look yet` : ''}${result.agent.notDelivered ? `, ${result.agent.notDelivered} could not be delivered (see below)` : ''}${result.agent.fallbacks ? `, ${result.agent.fallbacks} decided by fixed rules because the AI was unavailable` : ''}. Reminders sent: ${result.reminders.sent}.`}
         </Alert>
       )}
       {d?.demoMinutes && (
         <p className="mb-4 inline-flex flex-wrap items-center gap-2 rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-900" data-testid="demo-badge">
           <span aria-hidden="true">⏱️</span> Demo timing on
           <span className="font-normal">· doctor reminder after {d.demoMinutes} min, admin alert after {d.demoMinutes * 3} min (instead of 2 and 6 hours)</span>
+        </p>
+      )}
+      {d?.quietHours?.enabled && (
+        <p className={`mb-4 rounded-xl px-3 py-2 text-sm ${d.quietHours.activeNow ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-100 text-slate-700'}`} data-testid="quiet-hours">
+          <span aria-hidden="true">🌙</span> <strong>{d.quietHours.activeNow ? `Quiet hours now · emails wait until ${d.quietHours.resumeAtIst}` : 'Quiet hours: 10 PM to 8 AM IST'}</strong>
+          <span> · The agent sends no patient or doctor email in that time and holds it until 8 AM, unless the appointment is less than 2 hours away. Slack alerts to the admin go any time.</span>
         </p>
       )}
       {d && !d.aiConfigured && <Alert tone="warn" className="mb-4">viaSocket is not connected yet, so the agent uses its fixed rules, and emails and alerts are not sent.</Alert>}
@@ -52,7 +59,7 @@ export default function AdminAgent() {
                   <td className="px-4 py-3"><span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-semibold text-orange-900">{CASE[c.caseType]}</span><p className="mt-1 text-xs text-ink-muted">#{c.appointmentId}</p></td>
                   <td className="px-4 py-3"><p className="font-medium">{c.doctor}</p><p className="text-xs text-ink-muted">{c.department} · {c.whenIst}</p></td>
                   <td className="whitespace-nowrap px-4 py-3">{c.openSince}</td>
-                  <td className="px-4 py-3 text-xs">Doctor reminders {c.done.doctorReminders}/2<br />Patient reminders {c.done.patientReminders}/2<br />Slot offers {c.done.offers}<br />Admin {c.done.adminAlerted ? 'alerted' : 'not alerted'}</td>
+                  <td className="px-4 py-3 text-xs">Doctor reminders {c.done.doctorReminders}/2<br />Patient reminders {c.done.patientReminders}/2<br />Slot offers {c.done.offers}/{d.maxOffers}<br />Admin {c.done.adminAlerted ? 'alerted' : 'not alerted'}</td>
                   <td className="whitespace-nowrap px-4 py-3">{c.nextCheckIst || 'next tick'}</td>
                   <td className="px-4 py-3">{c.lastDecision ? <><p className="font-medium">{c.lastDecision.executed ? '' : 'Not done: '}{ACTION[c.lastDecision.action]?.[0] || c.lastDecision.action}</p><p className="max-w-xs text-xs text-ink-soft">{c.lastDecision.reason}</p>{!c.lastDecision.executed && <p className="max-w-xs text-xs text-orange-800">{c.lastDecision.outcome}</p>}</> : <span className="text-ink-muted">Not looked at yet</span>}</td>
                 </tr>
@@ -78,6 +85,7 @@ export default function AdminAgent() {
                 <p className="mt-1 text-sm text-ink-soft"><strong>Why:</strong> {x.reason}</p>
                 <p className="mt-1 text-xs text-ink-muted"><strong>Result:</strong> {x.outcome}</p>
                 {x.params?.slots && <p className="mt-1 text-xs text-ink-muted">Slots offered: {x.params.slots.join('; ')}</p>}
+                {x.action === 'hold_quiet_hours' && x.params?.resumeAtIst && <p className="mt-1 text-xs text-ink-muted">Decided again at: {x.params.resumeAtIst} · held step: {x.params.heldAction?.replace(/_/g, ' ')} · chosen by {x.params.chosenBy === 'ai' ? 'the AI' : 'the fixed rules'}</p>}
                 {x.action === 'wait' && x.params?.nextCheckAtIst && <p className="mt-1 text-xs text-ink-muted">Next check: {x.params.nextCheckAtIst}{x.params.nextStep ? ` · next step: ${x.params.nextStep.label} at ${x.params.nextStep.atIst}` : ''}</p>}
                 {x.aiError && <p className="mt-1 text-xs text-orange-800">The AI was not used: {x.aiError}</p>}
               </li>

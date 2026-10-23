@@ -110,7 +110,7 @@ export function CancelDialog({ a, onClose, onDone }) {
   )
 }
 
-const DOT = { completed: 'bg-brand-600', no_show: 'bg-slate-400', cancelled_by_patient: 'bg-red-400', cancelled_by_doctor: 'bg-red-400', rebooked: 'bg-slate-300', confirmed: 'bg-brand-600', pending: 'bg-accent-400' }
+const DOT = { completed: 'bg-brand-600', no_show: 'bg-slate-400', cancelled_by_patient: 'bg-red-400', cancelled_by_doctor: 'bg-red-400', rebooked: 'bg-slate-300', expired: 'bg-slate-400', confirmed: 'bg-brand-600', pending: 'bg-accent-400' }
 
 function Timeline({ items }) {
   return (
@@ -120,7 +120,7 @@ function Timeline({ items }) {
           <span className={`absolute -left-[9px] mt-1.5 h-4 w-4 rounded-full border-2 border-white ${DOT[a.status] || 'bg-slate-300'}`} aria-hidden="true" />
           <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
             <div><p className="font-semibold">{a.doctorName} <span className="font-normal text-ink-muted">· {a.department}</span></p><p className="text-sm text-ink-soft">{a.startIst}</p>{a.cancelReason && <p className="mt-1 text-xs text-ink-muted">Reason: {a.cancelReason}</p>}</div>
-            <StatusBadge status={a.status} />
+            <div className="flex items-center gap-3"><StatusBadge status={a.status} />{a.status === 'expired' && <Link to="/doctors" className="text-sm font-semibold text-brand-700 hover:underline">Book again</Link>}</div>
           </div>
         </li>
       ))}
