@@ -7,6 +7,7 @@ import { createAgent } from './agent/index.js'
 import { createTick } from './tick.js'
 import { createDailySchedule } from './dailySchedule.js'
 import { createFeedback } from './feedback.js'
+import { createBookingAssistant } from './bookingAssistant.js'
 
 // Builds the connected set of services. `client` and `fetchImpl` are swapped for fakes in the tests.
 export function buildServices({ config, db, clock = () => new Date(), client = null, fetchImpl = globalThis.fetch, timeouts = {}, feedbackWaitMs }) {
@@ -15,9 +16,10 @@ export function buildServices({ config, db, clock = () => new Date(), client = n
   const mailer = createMailer({ db, now: clock, transport: { sendEmail: ({ to, subject, body }) => integrations.send('email_sender', { to, subject, body }) } })
   const notifications = createNotifications({ db, config, mailer, integrations, clock })
   const feedback = createFeedback({ db, config, viasocket, notifications, clock, model: config.agent, ...(feedbackWaitMs !== undefined ? { waitMs: feedbackWaitMs } : {}) })
+  const bookingAssistant = createBookingAssistant({ db, config, viasocket, clock, model: config.agent })
   const notifier = createNotifier({ handlers: [notifications.handle, feedback.handle] })
   const agent = createAgent({ db, config, viasocket, mailer, notifications, clock, model: config.agent })
   const dailySchedule = createDailySchedule({ db, config, mailer, clock })
   const tick = createTick({ db, config, mailer, notifications, agent, dailySchedule, feedback, clock })
-  return { viasocket, integrations, mailer, notifications, notifier, agent, dailySchedule, feedback, tick }
+  return { viasocket, integrations, mailer, notifications, notifier, agent, dailySchedule, feedback, bookingAssistant, tick }
 }
