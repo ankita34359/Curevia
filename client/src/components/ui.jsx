@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { initials } from '../lib/format.js'
 
 export function Logo({ className = '', light = false }) {
@@ -111,25 +112,59 @@ export function Avatar({ name, photoUrl, size = 56 }) {
   )
 }
 
+// Every dialog in the app goes through this. It is rendered into document.body (a portal), never inside the card or page that
+// opened it: a parent with a transform (the cards' fade-in animation), filter or overflow would otherwise trap a position:fixed
+// child, clipping the dialog to the card and limiting the dark overlay to it.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Modal({ title, onClose, children, wide = false }) {
   const ref = useRef(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose // always the latest handler, without re-running the effect below on every render
   useEffect(() => {
+    const dialog = ref.current
     const prev = document.activeElement
-    ref.current?.focus()
-    const onKey = (e) => e.key === 'Escape' && onClose()
+    if (dialog && !dialog.contains(document.activeElement)) dialog.focus({ preventScroll: true }) // focus goes into the dialog (unless a field there already took it); no scrolling, so a tall dialog opens at its top
+    // The page behind does not scroll while the dialog is open (the scrollbar's width is kept so nothing jumps).
+    const { overflow, paddingRight } = document.body.style
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth
+    document.body.style.overflow = 'hidden'
+    if (scrollbar > 0) document.body.style.paddingRight = `${scrollbar}px`
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); return }
+      if (e.key !== 'Tab' || !dialog) return
+      // Tab stays inside the dialog.
+      const items = [...dialog.querySelectorAll(FOCUSABLE)].filter((el) => !el.closest('[hidden], [aria-hidden="true"]'))
+      if (!items.length) { e.preventDefault(); dialog.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === dialog)) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+      else if (!dialog.contains(active)) { e.preventDefault(); first.focus() }
+    }
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey); prev?.focus?.() }
-  }, [onClose])
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 p-4 pt-[8vh] backdrop-blur-sm" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`card w-full animate-fade-up p-6 outline-none ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <h2 className="text-lg font-bold">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-ink-muted hover:bg-slate-100">✕</button>
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = overflow
+      document.body.style.paddingRight = paddingRight
+      prev?.focus?.()
+    }
+  }, [])
+  const closeOnBackdrop = (e) => e.target === e.currentTarget && closeRef.current()
+  return createPortal(
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/50 backdrop-blur-sm" data-testid="modal-overlay" onMouseDown={closeOnBackdrop}>
+      <div className="flex min-h-full items-center justify-center p-4" onMouseDown={closeOnBackdrop}>
+        <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`card w-full animate-fade-up p-6 outline-none ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <h2 className="text-lg font-bold">{title}</h2>
+            <button type="button" onClick={() => closeRef.current()} aria-label="Close" className="rounded-lg p-1 text-ink-muted hover:bg-slate-100">✕</button>
+          </div>
+          {children}
         </div>
-        {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
