@@ -40,7 +40,7 @@ function queryAppointments(db, q, limit = 1000) {
   return db.prepare(`${APPT_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.start_utc DESC LIMIT ${limit}`).all(...args)
 }
 
-export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, integrations, tick }) {
+export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, integrations, tick, dailySchedule }) {
   const r = Router()
 
   // ---- dashboard ----
@@ -66,17 +66,26 @@ export function adminRoutes({ config, db, mailer, notifier, clock, viasocket, in
              COALESCE(SUM(a.status = 'pending'), 0) AS pending,
              COALESCE(SUM(a.status = 'confirmed'), 0) AS confirmed,
              COALESCE(SUM(a.status = 'completed'), 0) AS completed,
+             COALESCE(SUM(a.status = 'no_show'), 0) AS no_show,
              COALESCE(SUM(a.status IN ('cancelled_by_patient','cancelled_by_doctor')), 0) AS cancelled,
-             COALESCE(SUM(a.status = 'needs_rebooking'), 0) AS needs_rebooking
+             COALESCE(SUM(a.status = 'needs_rebooking'), 0) AS needs_rebooking,
+             COALESCE(SUM(a.status = 'rebooked'), 0) AS rebooked,
+             COALESCE(SUM(a.status = 'expired'), 0) AS expired
            FROM doctors d JOIN users u ON u.id = d.user_id JOIN departments dep ON dep.id = d.department_id
            LEFT JOIN appointments a ON a.doctor_id = d.id
            GROUP BY d.id ORDER BY u.name`
         )
         .all()
-        .map((x) => ({ id: x.id, name: x.name, department: x.department, active: !!x.active, total: x.total, pending: x.pending, confirmed: x.confirmed, completed: x.completed, cancelled: x.cancelled, needsRebooking: x.needs_rebooking }))
+        .map((x) => ({ id: x.id, name: x.name, department: x.department, active: !!x.active, total: x.total, pending: x.pending, confirmed: x.confirmed, completed: x.completed, noShow: x.no_show, cancelled: x.cancelled, needsRebooking: x.needs_rebooking, rebooked: x.rebooked, expired: x.expired }))
       res.json({ cards, perDoctor, today })
     })
   )
+
+  // "Send today's schedule now": the morning email, immediately (no 8:00 AM wait), to every doctor who has appointments today
+  // and has not received today's email yet. Doctors who already got it are not emailed again.
+  r.post('/daily-schedule/send-now', wrap(async (_req, res) => {
+    res.json({ result: await dailySchedule.run({ now: clock(), force: true }) })
+  }))
 
   // ---- appointments (list + CSV) ----
   r.get('/appointments', (req, res) => {

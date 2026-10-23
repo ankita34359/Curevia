@@ -17,14 +17,38 @@ export default function AdminDashboard() {
   const [doctorId, setDoctorId] = useState('')
   const qs = new URLSearchParams({ ...(status && { status }), ...(doctorId && { doctorId }) }).toString()
   const list = useLoad(() => api(`/admin/appointments?${qs}`), [qs])
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(null)
+  const [sendError, setSendError] = useState('')
+  async function sendSchedule() {
+    setSending(true); setSendError(''); setSent(null)
+    try { setSent((await api('/admin/daily-schedule/send-now', { method: 'POST' })).result) } catch (e) { setSendError(e.message) } finally { setSending(false) }
+  }
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
   return (
     <div>
       <PageHeader
         title="Dashboard"
         subtitle="How bookings are going across the hospital."
-        actions={<a href={`/api/admin/appointments.csv?${qs}`} download><Button variant="secondary">Download CSV</Button></a>}
+        actions={(
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="accent" loading={sending} onClick={sendSchedule} title="Emails every doctor who has appointments today and has not received today's schedule yet">Send today's schedule now</Button>
+            <a href={`/api/admin/appointments.csv?${qs}`} download><Button variant="secondary">Download CSV</Button></a>
+          </div>
+        )}
       />
+      {sendError && <Alert tone="error" className="mb-4">{sendError}</Alert>}
+      {sent && (
+        <Alert tone={sent.failed || sent.notSetUp ? 'warn' : 'success'} className="mb-4">
+          <strong>{plural(sent.sent, 'schedule email')} sent</strong> for {sent.date}.
+          {sent.alreadySent > 0 && ` ${plural(sent.alreadySent, 'doctor')} had already received it today.`}
+          {sent.noAppointments > 0 && ` ${plural(sent.noAppointments, 'doctor')} ${sent.noAppointments === 1 ? 'has' : 'have'} no appointments today (no email).`}
+          {sent.notSetUp > 0 && ` ${plural(sent.notSetUp, 'email')} not sent because the email slot is not set up (Integrations page).`}
+          {sent.failed > 0 && ` ${plural(sent.failed, 'email')} failed and will be tried again on the next check.`}
+          {sent.sent + sent.alreadySent + sent.notSetUp + sent.failed === 0 && sent.noAppointments === 0 && ' There are no active doctors.'}
+        </Alert>
+      )}
       {dash.error && <Alert tone="error">{dash.error}</Alert>}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         {CARDS.map((c, i) => (
@@ -40,20 +64,22 @@ export default function AdminDashboard() {
       <div className="card overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-ink-muted">
-            <tr>{['Doctor', 'Department', 'Total', 'Pending', 'Confirmed', 'Completed', 'Cancelled', 'Needs rebooking'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
+            <tr>{['Doctor', 'Department', 'Total', 'Pending', 'Confirmed', 'Completed', 'No-show', 'Cancelled', 'Needs rebooking', 'Rebooked', 'Expired'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {dash.loading && [0, 1, 2].map((i) => <tr key={i}><td colSpan={8} className="px-4 py-3"><Skeleton className="h-5" /></td></tr>)}
+            {dash.loading && [0, 1, 2].map((i) => <tr key={i}><td colSpan={11} className="px-4 py-3"><Skeleton className="h-5" /></td></tr>)}
             {dash.data?.perDoctor.map((d) => (
               <tr key={d.id} className="hover:bg-slate-50/70">
                 <td className="px-4 py-3 font-medium">{d.name}{!d.active && <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-xs">inactive</span>}</td>
                 <td className="px-4 py-3 text-ink-soft">{d.department}</td>
                 <td className="px-4 py-3 tabular-nums">{d.total}</td><td className="px-4 py-3 tabular-nums">{d.pending}</td>
                 <td className="px-4 py-3 tabular-nums">{d.confirmed}</td><td className="px-4 py-3 tabular-nums">{d.completed}</td>
-                <td className="px-4 py-3 tabular-nums">{d.cancelled}</td><td className="px-4 py-3 tabular-nums">{d.needsRebooking}</td>
+                <td className="px-4 py-3 tabular-nums">{d.noShow}</td><td className="px-4 py-3 tabular-nums">{d.cancelled}</td>
+                <td className="px-4 py-3 tabular-nums">{d.needsRebooking}</td><td className="px-4 py-3 tabular-nums">{d.rebooked}</td>
+                <td className="px-4 py-3 tabular-nums">{d.expired}</td>
               </tr>
             ))}
-            {dash.data?.perDoctor.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-ink-muted">No doctors yet. Add one on the Doctors page.</td></tr>}
+            {dash.data?.perDoctor.length === 0 && <tr><td colSpan={11} className="px-4 py-8 text-center text-ink-muted">No doctors yet. Add one on the Doctors page.</td></tr>}
           </tbody>
         </table>
       </div>

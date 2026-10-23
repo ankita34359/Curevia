@@ -5,6 +5,7 @@ import { createNotifier } from './notifier.js'
 import { createViaSocketService } from './viasocket.js'
 import { createAgent } from './agent/index.js'
 import { createTick } from './tick.js'
+import { createDailySchedule } from './dailySchedule.js'
 
 // Builds the connected set of services. `client` and `fetchImpl` are swapped for fakes in the tests.
 export function buildServices({ config, db, clock = () => new Date(), client = null, fetchImpl = globalThis.fetch, timeouts = {} }) {
@@ -14,6 +15,7 @@ export function buildServices({ config, db, clock = () => new Date(), client = n
   const notifications = createNotifications({ db, config, mailer, integrations, clock })
   const notifier = createNotifier({ handlers: [notifications.handle] })
   const agent = createAgent({ db, config, viasocket, mailer, notifications, clock, model: config.agent })
-  const tick = createTick({ db, config, mailer, notifications, agent, clock })
-  return { viasocket, integrations, mailer, notifications, notifier, agent, tick }
+  const dailySchedule = createDailySchedule({ db, config, mailer, clock })
+  const tick = createTick({ db, config, mailer, notifications, agent, dailySchedule, clock })
+  return { viasocket, integrations, mailer, notifications, notifier, agent, dailySchedule, tick }
 }
