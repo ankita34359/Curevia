@@ -240,7 +240,7 @@ describe('an unconfirmed request whose appointment time has passed expires', () 
     expect(slack).toHaveLength(1)
     expect(slack[0].text).toMatch(/appointment #1 .* expired/)
     expect(slack[0].text).not.toMatch(/Asha|chest pain|90000|pat@/i) // no patient details in Slack
-    expect(mailsTo(w.emails, 'doc@test.local')).toHaveLength(0)
+    expect(mailsTo(w.emails, 'doc@test.local').filter((m) => !/^Your appointments for today/.test(m.subject))).toHaveLength(0) // the doctor is not told about the expiry (their morning schedule email is a different thing)
 
     expect(w.db.prepare('SELECT closed_reason, closed_at FROM agent_cases WHERE appointment_id = ?').get(w.id)).toMatchObject({ closed_reason: 'expired' })
     const rows = log(w.db, w.id)

@@ -126,3 +126,19 @@ export function patientLabReportReady(a, { note, link }) {
     html: layout('Your lab report is ready', `<p>Hello ${esc(a.patientName)},</p><p>Your lab report from your visit on <strong>${esc(a.startIst)}</strong> with ${esc(a.doctorName)} is ready.</p>${note ? `<p><strong>Note from your doctor:</strong> ${esc(note)}</p>` : ''}<p><strong>How to collect it:</strong> please collect your report from the lab. If you are not sure where it is, ask any member of staff. We do not send results by email.</p>${button(link, 'View my appointments')}`)
   }
 }
+
+// The morning schedule for one doctor. `items` are today's pending and confirmed appointments, already sorted by time.
+const cap = (w) => String(w || '').charAt(0).toUpperCase() + String(w || '').slice(1)
+const clip = (text, n) => (String(text).length > n ? `${String(text).slice(0, n - 1).trimEnd()}…` : String(text))
+export function doctorDailySchedule({ doctorName, dateText, items, pendingToday, pendingTotal, link }) {
+  const th = 'padding:6px 8px;text-align:left;font-size:12px;color:#5b7480;border-bottom:1px solid #d9e4e8'
+  const td = 'padding:8px;font-size:13px;vertical-align:top;border-bottom:1px solid #eef3f5'
+  const rows = items.map((i) => `<tr><td style="${td};white-space:nowrap;font-weight:600">${esc(i.time)}</td><td style="${td}">${esc(i.patientName)}</td><td style="${td}">${esc(i.age)}</td><td style="${td}">${esc(cap(i.gender))}</td><td style="${td}">${esc(clip(i.reason, 200))}</td><td style="${td};white-space:nowrap;${i.status === 'pending' ? 'color:#b45309;font-weight:600' : ''}">${i.status === 'pending' ? 'Pending' : 'Confirmed'}</td></tr>`).join('')
+  const pending = pendingTotal > 0
+    ? `<p><strong>${pendingTotal} request${pendingTotal === 1 ? '' : 's'} still pending</strong> and waiting for your confirmation${pendingToday > 0 ? ` (${pendingToday} of them today)` : ''}.</p>`
+    : '<p>No requests are waiting for your confirmation.</p>'
+  return {
+    subject: `Your appointments for today (${dateText})`,
+    html: layout('Your appointments for today', `<p>Hello ${esc(doctorName)},</p><p>You have <strong>${items.length} appointment${items.length === 1 ? '' : 's'}</strong> today, ${esc(dateText)}.</p><table style="width:100%;border-collapse:collapse;margin:12px 0"><thead><tr><th style="${th}">Time</th><th style="${th}">Patient</th><th style="${th}">Age</th><th style="${th}">Gender</th><th style="${th}">Reason</th><th style="${th}">Status</th></tr></thead><tbody>${rows}</tbody></table>${pending}${button(link, 'Open my dashboard')}`)
+  }
+}
