@@ -14,6 +14,7 @@ const windowSchema = z.object({
 })
 const availabilityBody = z.object({ windows: z.array(windowSchema).max(40) })
 const leaveBody = z.object({ date: z.string().refine(isDateStr, 'Use YYYY-MM-DD'), reason: z.string().trim().max(200).default('') })
+const labReportBody = z.object({ note: z.string().trim().max(200, 'Keep the note under 200 characters').default('') })
 const cancelBody = z.object({ reason: z.string().trim().min(3, 'Please give a short reason').max(300), offerRebooking: z.boolean().default(true) })
 
 class Rollback extends Error {}
@@ -86,6 +87,18 @@ export function doctorRoutes({ db, notifier, clock }) {
       respond(res, a.id)
     }))
   }
+
+  // "Lab report ready": only the doctor of this completed appointment can mark it, once. An optional short note, no file, no results.
+  // Marking it sends the patient one email and adds one sheet row (both have unique keys per appointment).
+  r.post('/appointments/:id/lab-report', wrap(async (req, res) => {
+    const a = own(req)
+    if (a.status !== 'completed') throw new HttpError(409, 'You can mark a lab report ready only on a completed appointment')
+    const { note } = parse(labReportBody, req.body ?? {})
+    const done = db.prepare('INSERT OR IGNORE INTO lab_reports (appointment_id, note, marked_by, created_at) VALUES (?,?,?,?)').run(a.id, note, req.user.id, clock().toISOString())
+    if (!done.changes) throw new HttpError(409, 'The lab report is already marked ready for this appointment')
+    notifier.emit('lab_report_ready', { appointmentId: a.id })
+    respond(res, a.id)
+  }))
 
   // ---- availability ----
   function validateWindows(windows) {

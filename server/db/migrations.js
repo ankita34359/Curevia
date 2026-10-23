@@ -241,5 +241,19 @@ CREATE INDEX ix_appt_status ON appointments(status);
 CREATE UNIQUE INDEX ux_appt_slot ON appointments(doctor_id, start_utc)
   WHERE status IN ('pending','confirmed','completed','no_show');
 `
+  },
+  {
+    id: 6,
+    name: 'lab_reports',
+    // "Lab report ready" for a completed appointment: only a short note from the doctor, no file and no results.
+    // One row per appointment (the primary key), so it can only be marked once. An added table: nothing existing is touched.
+    sql: `
+CREATE TABLE lab_reports (
+  appointment_id INTEGER PRIMARY KEY REFERENCES appointments(id),
+  note TEXT NOT NULL DEFAULT '',
+  marked_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+`
   }
 ]

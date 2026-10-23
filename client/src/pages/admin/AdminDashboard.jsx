@@ -75,7 +75,7 @@ export default function AdminDashboard() {
         <div className="card overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-ink-muted">
-              <tr>{['When (IST)', 'Patient', 'Doctor', 'Department', 'Status'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
+              <tr>{['When (IST)', 'Patient', 'Doctor', 'Department', 'Status', 'Lab report'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {list.data.appointments.map((a) => (
@@ -83,6 +83,7 @@ export default function AdminDashboard() {
                   <td className="whitespace-nowrap px-4 py-3">{a.startIst}</td><td className="px-4 py-3">{a.patientName}</td>
                   <td className="px-4 py-3">{a.doctorName}</td><td className="px-4 py-3 text-ink-soft">{a.department}</td>
                   <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
+                  <td className="px-4 py-3 text-xs" data-testid="lab-cell">{a.labReport ? <><span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-900">Ready</span><span className="ml-1 text-ink-muted">{a.labReport.readyIst}</span>{a.labReport.note && <p className="mt-0.5 max-w-[14rem] text-ink-soft">{a.labReport.note}</p>}</> : a.status === 'completed' ? <span className="text-ink-muted">Not marked yet</span> : <span className="text-slate-300">—</span>}</td>
                 </tr>
               ))}
             </tbody>
